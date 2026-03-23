@@ -3,6 +3,7 @@ import type { AccessTokenResponse } from "@shared/auth";
 import { api, setAccessToken } from "./api";
 import Editor from "./components/Editor";
 import Auth from "./components/Auth";
+import { SessionProvider } from "./contexts/SessionContext";
 import "./styles.css";
 
 function App() {
@@ -110,7 +111,13 @@ function App() {
       </div>
 
       <div className="app-content">
-        {!isAuth ? <Auth onAuth={setAccessTokenState} /> : <Editor />}
+        {!isAuth ? (
+          <Auth onAuth={setAccessTokenState} />
+        ) : (
+          <SessionProvider>
+            <Editor />
+          </SessionProvider>
+        )}
       </div>
     </div>
   );
