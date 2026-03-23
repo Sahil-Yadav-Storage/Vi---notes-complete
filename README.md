@@ -1,83 +1,134 @@
 # Vi-Notes
 
-Vi-Notes is a full-stack typing-session tracker built as a TypeScript monorepo. It captures editor interaction events, stores normalized keystroke timelines, and computes session analytics when a session is closed.
+Vi-Notes is an authenticity verification platform for writing. It combines live keyboard-behavior tracking with session-level analysis to help distinguish natural human composition from suspicious, non-human writing patterns.
 
-This README documents what is currently implemented in the repository.
+This repository contains the current production-ready implementation of the core system as a TypeScript monorepo.
 
-## What Has Been Implemented
+## Project Vision
 
-- [x] Monorepo workspace with three packages: client, server, shared.
-- [x] React + Vite frontend with login/register flow and editor UI.
-- [x] Theme toggle (dark/light) persisted in localStorage.
-- [x] Axios API client with automatic access-token refresh and request retry.
-- [x] Express backend with MongoDB persistence via Mongoose.
-- [x] JWT access token + refresh token authentication system.
-- [x] Refresh token rotation with hashed token persistence and revocation tracking.
-- [x] Auth rate limiting for register and login endpoints.
-- [x] Protected session endpoints using bearer-token middleware.
-- [x] Keystroke ingestion pipeline that strips raw text content from payloads.
-- [x] Keystroke timing normalization (raw + smoothed timestamps/durations).
-- [x] Session close operation that computes and stores analytics snapshot.
-- [x] Shared type contracts consumed by both client and server.
+The original idea behind Vi-Notes is simple: authenticity is stronger when content and behavior agree.
 
-## Repository Structure
+- Human writing usually includes pauses, rewrites, bursts, hesitation, and corrections.
+- AI-assisted or pasted content can show mismatches between the text and the way it was produced.
+- Vi-Notes captures behavioral metadata in real time and pairs it with session analytics for verifiable authorship evidence.
 
-| Path         | Purpose                                                     |
-| ------------ | ----------------------------------------------------------- |
-| client       | Frontend app (React 19, Vite 8, Axios)                      |
-| server       | API server (Express 5, Mongoose, JWT auth)                  |
-| shared       | Shared TypeScript contracts for auth/session/keystroke data |
-| package.json | Root workspace scripts for dev, build, typecheck            |
+Mentor: Jinal Gupta
+
+## What Was Requested Originally
+
+The initial feature requests defined five core milestones:
+
+1. Basic writing editor
+2. User registration and login
+3. Keystroke timing capture (without storing typed characters)
+4. Paste detection
+5. Save writing sessions with typing metadata
+
+## Original Features and How They Are Implemented
+
+### 1) Basic Writing Editor
+
+Implemented.
+
+- A distraction-free textarea-based editor is provided in the client.
+- The editor focuses on plain text composition without formatting controls.
+- Input events are captured in the background while keeping writing flow uninterrupted.
+
+### 2) User Login and Registration
+
+Implemented.
+
+- Email/password registration and login are supported.
+- The server issues JWT access tokens and HTTP-only refresh cookies.
+- The client supports automatic token refresh during active usage.
+
+### 3) Capture Keystroke Timing
+
+Implemented.
+
+- The client records key down and key up timestamps.
+- Press duration is computed from down/up timing when available.
+- Only behavioral metadata is stored, never the actual typed characters.
+- On the backend, normalization keeps both raw and smoothed timing values.
+
+### 4) Detect Pasted Text
+
+Implemented.
+
+- Paste events are detected directly from editor paste handlers.
+- Each event stores paste length and selection range metadata.
+- Additional tracking marks whether pasted segments were edited later.
+
+### 5) Save Writing Session Data
+
+Implemented.
+
+- Sessions are created and incrementally updated via authenticated API routes.
+- Keystrokes are persisted in MongoDB under the owning user.
+- Sessions can be listed, fetched by id, and formally closed with analytics.
+
+## Additional Features Implemented Beyond Original Scope
+
+### Authentication and Security Hardening
+
+- Refresh token rotation with server-side revocation tracking
+- Hashed refresh token persistence (SHA-256)
+- Login and registration rate limiting
+- Protected session endpoints via bearer-token middleware
+
+### Privacy and Data Protection
+
+- Keystroke sanitization middleware strips content fields from payloads
+- Event model stores structural and timing metadata, not raw text keystrokes
+- Cookie security defaults include httpOnly and sameSite protections
+
+### Reliability and Sync Resilience
+
+- Durable client-side keystroke queue in IndexedDB
+- Offline-first buffering with automatic replay on reconnect
+- Sync retries with exponential backoff and user-facing error toasts
+- Deferred session close when unsynced data remains
+
+### Session Intelligence and Analysis
+
+- Session close computes analytics snapshot and stores it with the session
+- Metrics include pause frequency, edit ratio, paste ratio, and WPM variance
+- Re-closing an already closed session returns prior analytics safely
+
+### Developer Experience
+
+- Monorepo workspaces: client, server, shared
+- Shared TypeScript contracts used across frontend and backend
+- Type-safe API payloads and response contracts
+
+## High-Level Architecture
+
+| Layer | Stack | Responsibility |
+| --- | --- | --- |
+| Client | React, Vite, TypeScript, Axios | Editor UI, event capture, auth, sync scheduling |
+| Server | Node.js, Express, TypeScript, Mongoose | Auth, session APIs, validation, normalization, analytics |
+| Shared | TypeScript workspace package | Cross-package auth/session/keystroke types |
+| Database | MongoDB | Users, refresh tokens, sessions, analytics |
 
 ## End-to-End Flow
 
-1. User logs in on the client.
-2. Server verifies credentials and returns access token; refresh token is set as an HTTP-only cookie.
-3. Client records typing events in the editor: key down/up, paste, and inferred edit diffs.
-4. Client debounces sync calls to create or append to a session.
-5. Server validates and normalizes event timing before persistence.
-6. On page hide/unmount, client flushes pending events and calls close-session endpoint.
-7. Server computes analytics and stores them in the session document.
+1. User signs in and gets an access token plus refresh cookie.
+2. Editor captures behavioral events: down, up, paste, edit.
+3. Events are buffered locally and synced in batches.
+4. Server validates, sanitizes, normalizes, and persists events.
+5. On close, server computes analytics and stores final session snapshot.
+6. Session evidence can be fetched later for verification/reporting.
 
-## Backend Details
+## Event and Analytics Model
 
-### Authentication and Session Security
-
-- Access token: signed with JWT_SECRET, expires using JWT_ACCESS_EXPIRES_IN.
-- Refresh token: signed with JWT_REFRESH_SECRET, includes tokenId.
-- Refresh tokens are hashed (SHA-256) before persistence.
-- Rotation marks old refresh token as revoked and links replacement token hash.
-- Refresh cookie configuration:
-  - httpOnly enabled
-  - secure enabled only in production
-  - sameSite=lax
-  - path=/api/auth
-- Login and registration endpoints have rate limits:
-  - Login: max 10 requests / 15 minutes
-  - Register: max 5 requests / 15 minutes
-
-### Keystroke Capture Model
-
-The system stores event types:
+### Captured Event Types
 
 - down
 - up
 - paste
 - edit
 
-Paste and edit events include structural metadata such as paste length and edit ranges. Raw text content fields are explicitly removed at middleware level before processing.
-
-### Timing Normalization
-
-When keystrokes are saved:
-
-- rawTimestamp/rawDuration preserve original client timings.
-- timestamp/duration store smoothed values.
-- Append operations seed smoothing windows from prior raw values to avoid over-flattening across long sessions.
-
-### Analytics Computed on Session Close
-
-When a session is closed, analytics include:
+### Analytics Computed at Session Close
 
 - approximateWpmVariance
 - pauseFrequency
@@ -91,81 +142,76 @@ When a session is closed, analytics include:
 - durationMs
 - version
 
-## API Endpoints
+## API Overview
 
-Base URL (default local): http://127.0.0.1:3001
+Base URL (local default): http://127.0.0.1:3001
 
 ### Auth
 
-| Method | Endpoint           | Auth            | Notes                                           |
-| ------ | ------------------ | --------------- | ----------------------------------------------- |
-| POST   | /api/auth/register | No              | Registers new user                              |
-| POST   | /api/auth/login    | No              | Returns accessToken and sets refresh cookie     |
-| POST   | /api/auth/refresh  | Cookie          | Rotates refresh token, returns new accessToken  |
-| POST   | /api/auth/logout   | Cookie optional | Revokes refresh token if present, clears cookie |
+| Method | Endpoint | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | /api/auth/register | No | Create user account |
+| POST | /api/auth/login | No | Login and issue tokens |
+| POST | /api/auth/refresh | Refresh cookie | Rotate refresh token and issue new access token |
+| POST | /api/auth/logout | Optional refresh cookie | Revoke token and clear cookie |
 
 ### Sessions
 
-All session routes require Authorization: Bearer <accessToken>
+All session endpoints require Authorization: Bearer <accessToken>
 
-| Method | Endpoint               | Notes                                 |
-| ------ | ---------------------- | ------------------------------------- |
-| POST   | /api/session           | Creates new session from keystrokes   |
-| PATCH  | /api/session/:id       | Appends keystrokes to active session  |
-| GET    | /api/session           | Lists user sessions (newest first)    |
-| GET    | /api/session/:id       | Gets a single user session            |
-| POST   | /api/session/:id/close | Closes session and persists analytics |
-
-## Shared Contracts
-
-The shared package exports:
-
-- Keystroke
-- SessionUpsertInput
-- SessionAnalytics
-- CloseSessionResponse
-- AccessTokenResponse
-
-This keeps client-server request/response typing consistent.
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| POST | /api/session | Create a new session |
+| PATCH | /api/session/:id | Append keystrokes to active session |
+| GET | /api/session | List user sessions |
+| GET | /api/session/:id | Get session details |
+| POST | /api/session/:id/close | Close session and persist analytics |
 
 ## Local Development
 
-## Prerequisites
+### Prerequisites
 
 - Node.js 20+
 - npm 10+
-- MongoDB instance
+- MongoDB
 
-## Install
+### Installation
 
-Run from repository root:
+From repository root:
 
 ```bash
 npm install
 ```
 
-## Configure Environment
+### Environment Setup
 
-Create server environment file:
+Create server environment config:
 
-- Copy server/.env.example to server/.env
-- Fill in secure values
+1. Copy server/.env.example to server/.env
+2. Set secure values for secrets and database URI
 
-Expected variables:
+Supported server environment variables:
 
-| Name                   | Required | Default               |
-| ---------------------- | -------- | --------------------- |
-| MONGODB_URI            | Yes      | None                  |
-| JWT_SECRET             | Yes      | None                  |
-| JWT_REFRESH_SECRET     | Yes      | None                  |
-| JWT_ACCESS_EXPIRES_IN  | No       | 15m                   |
-| REFRESH_TOKEN_TTL_DAYS | No       | 7                     |
-| REFRESH_COOKIE_NAME    | No       | refreshToken          |
-| CLIENT_ORIGIN          | No       | http://127.0.0.1:5173 |
-| NODE_ENV               | No       | development           |
-| PORT                   | No       | 3001                  |
+| Name | Required | Default |
+| --- | --- | --- |
+| MONGODB_URI | Yes | None |
+| JWT_SECRET | Yes | None |
+| JWT_REFRESH_SECRET | Yes | None |
+| JWT_ACCESS_EXPIRES_IN | No | 15m |
+| REFRESH_TOKEN_TTL_DAYS | No | 7 |
+| REFRESH_COOKIE_NAME | No | refreshToken |
+| CLIENT_ORIGIN | No | http://127.0.0.1:5173 |
+| NODE_ENV | No | development |
+| PORT | No | 3001 |
 
-## Run Development Servers
+Client environment variables (optional):
+
+| Name | Purpose | Default |
+| --- | --- | --- |
+| VITE_API_BASE_URL | API base URL | http://127.0.0.1:3001 |
+| VITE_KEYSTROKE_SYNC_INTERVAL_MS | Sync interval in ms | 5000 |
+
+### Run in Development
 
 From repository root:
 
@@ -173,35 +219,49 @@ From repository root:
 npm run dev
 ```
 
-- Client runs on Vite default port (typically 5173)
-- Server runs on configured PORT (default 3001)
+- Client: Vite dev server (typically 5173)
+- Server: Express API (default 3001)
 
-## Type Check
+### Typecheck
 
 ```bash
 npm run typecheck
 ```
 
-## Build
-
-Currently implemented root build target compiles client bundle:
+### Build
 
 ```bash
 npm run build
 ```
 
-## Notes on Current Scope
+## Current Limitations
 
-- There is no automated test suite configured yet.
-- Root build script currently targets client package build only.
-- Session close analytics are computed once and returned as alreadyClosed when re-closed.
+- No automated test suite is configured yet.
+- Root build script currently targets client build output.
+- Current application is web-first; native desktop capture layers are not yet added.
+
+## Upcoming Scope
+
+- Richer authenticity reports and visual evidence summaries
+- More advanced anomaly detection pipelines
+- Progressive adaptation to evolving AI writing assistance patterns
+- Native desktop packaging and deeper OS-level telemetry hooks
 
 ## Tech Stack
 
-- Frontend: React 19, Vite 8, TypeScript, Axios
-- Backend: Node.js, Express 5, TypeScript, Mongoose, Zod
-- Auth/Security: bcrypt, JWT, refresh-token rotation, express-rate-limit
-- Shared Contracts: workspace package with common TypeScript types
+- Frontend: React, TypeScript, Vite, Axios
+- Backend: Node.js, Express, TypeScript, Mongoose, Zod
+- Auth and Security: bcrypt, JWT, refresh token rotation, express-rate-limit
+- Shared Contracts: workspace package for common TypeScript types
+
+## Repository Structure
+
+| Path | Purpose |
+| --- | --- |
+| client | Frontend app and editor experience |
+| server | API, auth, sessions, analytics logic |
+| shared | Shared type contracts across packages |
+| package.json | Root workspace scripts |
 
 ## License
 
