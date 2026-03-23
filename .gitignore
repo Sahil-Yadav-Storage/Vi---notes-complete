@@ -1,0 +1,33 @@
+node_modules/
+**/node_modules/
+
+# environment files
+.env
+.env.*
+!.env.example
+!server/.env.example
+
+# build outputs and caches
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# misc local files
+*.local
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

@@ -1,0 +1,445 @@
+import { Types } from "mongoose";
+import type { CloseSessionResponse, SessionUpsertInput } from "@shared/session";
+import type { Keystroke } from "@shared/keystroke";
+import Session from "../models/Session.js";
+import { NotFoundError, UnauthorizedError, ValidationError } from "./errors.js";
+import { computeSessionAnalytics } from "./analysisService.js";
+
+const ROLLING_WINDOW_SIZE = 5;
+
+type SessionWithLifecycle = {
+  _id: Types.ObjectId;
+  status?: "active" | "closed";
+  closedAt?: Date;
+  analytics?: CloseSessionResponse["analytics"];
+  keystrokes: SessionUpsertInput["keystrokes"];
+  save: () => Promise<unknown>;
+};
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const clampNonNegative = (value: number) => (value < 0 ? 0 : value);
+
+const average = (values: number[]) => {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+};
+
+const toChronological = (keystrokes: Keystroke[]) =>
+  [...keystrokes].sort((a, b) => {
+    const aTimestamp = isFiniteNumber(a.timestamp) ? a.timestamp : 0;
+    const bTimestamp = isFiniteNumber(b.timestamp) ? b.timestamp : 0;
+    return aTimestamp - bTimestamp;
+  });
+
+const getRawTimestamp = (event: Keystroke): number => {
+  if (isFiniteNumber(event.rawTimestamp)) {
+    return event.rawTimestamp;
+  }
+
+  return isFiniteNumber(event.timestamp) ? event.timestamp : 0;
+};
+
+const getRawDuration = (event: Keystroke): number | undefined => {
+  if (isFiniteNumber(event.rawDuration)) {
+    return event.rawDuration;
+  }
+
+  if (isFiniteNumber(event.duration)) {
+    return event.duration;
+  }
+
+  return undefined;
+};
+
+const getSmoothedTimestamp = (event: Keystroke): number => {
+  if (isFiniteNumber(event.timestamp)) {
+    return event.timestamp;
+  }
+
+  return getRawTimestamp(event);
+};
+
+const getSeedRawDeltas = (history: Keystroke[]): number[] => {
+  const tail = history.slice(-ROLLING_WINDOW_SIZE);
+  const deltas: number[] = [];
+
+  for (let index = 1; index < tail.length; index += 1) {
+    const current = tail[index];
+    const previous = tail[index - 1];
+
+    if (!current || !previous) {
+      continue;
+    }
+
+    const delta = clampNonNegative(
+      getRawTimestamp(current) - getRawTimestamp(previous),
+    );
+    deltas.push(delta);
+  }
+
+  return deltas.slice(-(ROLLING_WINDOW_SIZE - 1));
+};
+
+const getSeedRawDurations = (history: Keystroke[]): number[] => {
+  const rawDurations = history
+    .slice(-ROLLING_WINDOW_SIZE)
+    .map(getRawDuration)
+    .filter((value): value is number => isFiniteNumber(value));
+
+  return rawDurations.slice(-(ROLLING_WINDOW_SIZE - 1));
+};
+
+const normalizeKeystrokeTiming = (
+  input: Keystroke[],
+  previousPersisted: Keystroke[] = [],
+): Keystroke[] => {
+  if (input.length === 0) {
+    return [];
+  }
+
+  const orderedInput = toChronological(input);
+  const rawDeltaWindow = getSeedRawDeltas(previousPersisted);
+  const rawDurationWindow = getSeedRawDurations(previousPersisted);
+
+  const previousPersistedLast =
+    previousPersisted.length > 0
+      ? previousPersisted[previousPersisted.length - 1]
+      : undefined;
+
+  let previousRawTimestamp = previousPersistedLast
+    ? getRawTimestamp(previousPersistedLast)
+    : undefined;
+  let previousSmoothedTimestamp = previousPersistedLast
+    ? getSmoothedTimestamp(previousPersistedLast)
+    : undefined;
+
+  const normalized: Keystroke[] = [];
+
+  for (const event of orderedInput) {
+    const rawTimestamp = getRawTimestamp(event);
+
+    if (
+      !isFiniteNumber(previousRawTimestamp) ||
+      !isFiniteNumber(previousSmoothedTimestamp)
+    ) {
+      previousRawTimestamp = rawTimestamp;
+      previousSmoothedTimestamp = rawTimestamp;
+
+      const rawDuration = getRawDuration(event);
+      const smoothedDuration = isFiniteNumber(rawDuration)
+        ? clampNonNegative(rawDuration)
+        : undefined;
+
+      if (isFiniteNumber(rawDuration)) {
+        rawDurationWindow.push(rawDuration);
+        if (rawDurationWindow.length > ROLLING_WINDOW_SIZE) {
+          rawDurationWindow.shift();
+        }
+      }
+
+      normalized.push({
+        ...event,
+        rawTimestamp,
+        timestamp: rawTimestamp,
+        ...(isFiniteNumber(rawDuration) && { rawDuration }),
+        ...(isFiniteNumber(smoothedDuration) && { duration: smoothedDuration }),
+      });
+      continue;
+    }
+
+    const rawDelta = clampNonNegative(rawTimestamp - previousRawTimestamp);
+    rawDeltaWindow.push(rawDelta);
+    if (rawDeltaWindow.length > ROLLING_WINDOW_SIZE) {
+      rawDeltaWindow.shift();
+    }
+
+    const smoothedDelta = clampNonNegative(average(rawDeltaWindow));
+    const candidateTimestamp = previousSmoothedTimestamp + smoothedDelta;
+    const smoothedTimestamp = Math.max(
+      previousSmoothedTimestamp,
+      candidateTimestamp,
+    );
+
+    const rawDuration = getRawDuration(event);
+    let smoothedDuration: number | undefined;
+
+    if (isFiniteNumber(rawDuration)) {
+      rawDurationWindow.push(rawDuration);
+      if (rawDurationWindow.length > ROLLING_WINDOW_SIZE) {
+        rawDurationWindow.shift();
+      }
+
+      smoothedDuration = clampNonNegative(average(rawDurationWindow));
+    }
+
+    normalized.push({
+      ...event,
+      rawTimestamp,
+      timestamp: smoothedTimestamp,
+      ...(isFiniteNumber(rawDuration) && { rawDuration }),
+      ...(isFiniteNumber(smoothedDuration) && { duration: smoothedDuration }),
+    });
+
+    previousRawTimestamp = rawTimestamp;
+    previousSmoothedTimestamp = smoothedTimestamp;
+  }
+
+  return normalized;
+};
+
+const assertValidRange = (
+  start: unknown,
+  end: unknown,
+  label: string,
+  index: number,
+) => {
+  if (!isFiniteNumber(start) || !isFiniteNumber(end)) {
+    throw new ValidationError(
+      `keystrokes[${index}] ${label} must have numeric start/end`,
+    );
+  }
+
+  if (start < 0 || end < 0 || start > end) {
+    throw new ValidationError(`keystrokes[${index}] ${label} range is invalid`);
+  }
+};
+
+const validateKeystrokes = (keystrokes: unknown[]) => {
+  for (let index = 0; index < keystrokes.length; index += 1) {
+    const item = keystrokes[index];
+
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new ValidationError(`keystrokes[${index}] must be an object`);
+    }
+
+    const keystroke = item as Record<string, unknown>;
+    const action = keystroke.action;
+
+    if (
+      action !== "down" &&
+      action !== "up" &&
+      action !== "paste" &&
+      action !== "edit"
+    ) {
+      throw new ValidationError(`keystrokes[${index}] action is invalid`);
+    }
+
+    if (!isFiniteNumber(keystroke.timestamp)) {
+      throw new ValidationError(
+        `keystrokes[${index}] timestamp must be a number`,
+      );
+    }
+
+    if (action === "paste") {
+      if (!isFiniteNumber(keystroke.pasteLength) || keystroke.pasteLength < 0) {
+        throw new ValidationError(
+          `keystrokes[${index}] pasteLength must be a non-negative number`,
+        );
+      }
+
+      const hasSelectionStart =
+        typeof keystroke.pasteSelectionStart !== "undefined";
+      const hasSelectionEnd =
+        typeof keystroke.pasteSelectionEnd !== "undefined";
+
+      if (hasSelectionStart || hasSelectionEnd) {
+        assertValidRange(
+          keystroke.pasteSelectionStart,
+          keystroke.pasteSelectionEnd,
+          "paste selection",
+          index,
+        );
+      }
+
+      if (
+        typeof keystroke.editedLater !== "undefined" &&
+        typeof keystroke.editedLater !== "boolean"
+      ) {
+        throw new ValidationError(
+          `keystrokes[${index}] editedLater must be a boolean`,
+        );
+      }
+    }
+
+    if (action === "edit") {
+      assertValidRange(keystroke.editStart, keystroke.editEnd, "edit", index);
+
+      if (
+        !isFiniteNumber(keystroke.insertedLength) ||
+        !isFiniteNumber(keystroke.removedLength)
+      ) {
+        throw new ValidationError(
+          `keystrokes[${index}] edit lengths must be numbers`,
+        );
+      }
+
+      if (keystroke.insertedLength < 0 || keystroke.removedLength < 0) {
+        throw new ValidationError(
+          `keystrokes[${index}] edit lengths must be non-negative`,
+        );
+      }
+    }
+  }
+};
+
+const assertUserId = (userId?: string): string => {
+  if (!userId) {
+    throw new UnauthorizedError("Unauthorized");
+  }
+
+  return userId;
+};
+
+export const createSession = async (
+  userId: string | undefined,
+  input: Partial<SessionUpsertInput>,
+) => {
+  const ownerId = assertUserId(userId);
+  const { keystrokes } = input;
+
+  if (!Array.isArray(keystrokes)) {
+    throw new ValidationError("keystrokes must be an array");
+  }
+
+  validateKeystrokes(keystrokes);
+
+  const normalizedKeystrokes = normalizeKeystrokeTiming(
+    keystrokes as Keystroke[],
+  );
+
+  const session = new Session({
+    user: new Types.ObjectId(ownerId),
+    keystrokes: normalizedKeystrokes,
+  });
+
+  await session.save();
+
+  return { sessionId: session._id };
+};
+
+export const appendToSession = async (
+  userId: string | undefined,
+  sessionId: string,
+  input: Partial<SessionUpsertInput>,
+): Promise<void> => {
+  const ownerId = assertUserId(userId);
+
+  if (!sessionId) {
+    throw new ValidationError("Invalid session id");
+  }
+
+  const { keystrokes } = input;
+
+  if (typeof keystrokes !== "undefined" && !Array.isArray(keystrokes)) {
+    throw new ValidationError("keystrokes must be an array");
+  }
+
+  if (Array.isArray(keystrokes)) {
+    validateKeystrokes(keystrokes);
+  }
+
+  const session = (await Session.findOne({
+    _id: new Types.ObjectId(sessionId),
+    user: new Types.ObjectId(ownerId),
+  })) as SessionWithLifecycle | null;
+
+  if (!session) {
+    throw new NotFoundError("Session not found");
+  }
+
+  if (session.status === "closed") {
+    throw new ValidationError("Session is closed");
+  }
+
+  if (Array.isArray(keystrokes) && keystrokes.length > 0) {
+    const normalizedKeystrokes = normalizeKeystrokeTiming(
+      keystrokes as Keystroke[],
+      session.keystrokes as Keystroke[],
+    );
+    session.keystrokes.push(...normalizedKeystrokes);
+    await session.save();
+  }
+};
+
+export const closeSession = async (
+  userId: string | undefined,
+  sessionId: string,
+): Promise<CloseSessionResponse> => {
+  const ownerId = assertUserId(userId);
+
+  if (!sessionId) {
+    throw new ValidationError("Invalid session id");
+  }
+
+  const session = (await Session.findOne({
+    _id: new Types.ObjectId(sessionId),
+    user: new Types.ObjectId(ownerId),
+  })) as SessionWithLifecycle | null;
+
+  if (!session) {
+    throw new NotFoundError("Session not found");
+  }
+
+  if (session.status === "closed" && session.analytics && session.closedAt) {
+    return {
+      message: "Session already closed",
+      sessionId: session._id.toString(),
+      analytics: session.analytics,
+      closedAt: session.closedAt.toISOString(),
+      alreadyClosed: true,
+    };
+  }
+
+  const analytics = computeSessionAnalytics(session.keystrokes);
+  const closedAt = session.closedAt ?? new Date();
+
+  session.status = "closed";
+  session.closedAt = closedAt;
+  session.analytics = analytics;
+  await session.save();
+
+  return {
+    message: "Session closed",
+    sessionId: session._id.toString(),
+    analytics,
+    closedAt: closedAt.toISOString(),
+    alreadyClosed: false,
+  };
+};
+
+export const listSessions = async (userId: string | undefined) => {
+  const ownerId = assertUserId(userId);
+
+  return Session.find({
+    user: new Types.ObjectId(ownerId),
+  })
+    .sort({ createdAt: -1 })
+    .select("-__v");
+};
+
+export const getSessionById = async (
+  userId: string | undefined,
+  sessionId: string,
+) => {
+  const ownerId = assertUserId(userId);
+
+  if (!sessionId) {
+    throw new ValidationError("Invalid session id");
+  }
+
+  const session = await Session.findOne({
+    _id: new Types.ObjectId(sessionId),
+    user: new Types.ObjectId(ownerId),
+  }).select("-__v");
+
+  if (!session) {
+    throw new NotFoundError("Session not found");
+  }
+
+  return session;
+};
