@@ -103,12 +103,12 @@ Implemented.
 
 ## High-Level Architecture
 
-| Layer | Stack | Responsibility |
-| --- | --- | --- |
-| Client | React, Vite, TypeScript, Axios | Editor UI, event capture, auth, sync scheduling |
-| Server | Node.js, Express, TypeScript, Mongoose | Auth, session APIs, validation, normalization, analytics |
-| Shared | TypeScript workspace package | Cross-package auth/session/keystroke types |
-| Database | MongoDB | Users, refresh tokens, sessions, analytics |
+| Layer    | Stack                                  | Responsibility                                           |
+| -------- | -------------------------------------- | -------------------------------------------------------- |
+| Client   | React, Vite, TypeScript, Axios         | Editor UI, event capture, auth, sync scheduling          |
+| Server   | Node.js, Express, TypeScript, Mongoose | Auth, session APIs, validation, normalization, analytics |
+| Shared   | TypeScript workspace package           | Cross-package auth/session/keystroke types               |
+| Database | MongoDB                                | Users, refresh tokens, sessions, analytics               |
 
 ## End-to-End Flow
 
@@ -148,24 +148,24 @@ Base URL (local default): http://127.0.0.1:3001
 
 ### Auth
 
-| Method | Endpoint | Auth | Purpose |
-| --- | --- | --- | --- |
-| POST | /api/auth/register | No | Create user account |
-| POST | /api/auth/login | No | Login and issue tokens |
-| POST | /api/auth/refresh | Refresh cookie | Rotate refresh token and issue new access token |
-| POST | /api/auth/logout | Optional refresh cookie | Revoke token and clear cookie |
+| Method | Endpoint           | Auth                    | Purpose                                         |
+| ------ | ------------------ | ----------------------- | ----------------------------------------------- |
+| POST   | /api/auth/register | No                      | Create user account                             |
+| POST   | /api/auth/login    | No                      | Login and issue tokens                          |
+| POST   | /api/auth/refresh  | Refresh cookie          | Rotate refresh token and issue new access token |
+| POST   | /api/auth/logout   | Optional refresh cookie | Revoke token and clear cookie                   |
 
 ### Sessions
 
 All session endpoints require Authorization: Bearer <accessToken>
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| POST | /api/session | Create a new session |
-| PATCH | /api/session/:id | Append keystrokes to active session |
-| GET | /api/session | List user sessions |
-| GET | /api/session/:id | Get session details |
-| POST | /api/session/:id/close | Close session and persist analytics |
+| Method | Endpoint               | Purpose                             |
+| ------ | ---------------------- | ----------------------------------- |
+| POST   | /api/session           | Create a new session                |
+| PATCH  | /api/session/:id       | Append keystrokes to active session |
+| GET    | /api/session           | List user sessions                  |
+| GET    | /api/session/:id       | Get session details                 |
+| POST   | /api/session/:id/close | Close session and persist analytics |
 
 ## Local Development
 
@@ -192,24 +192,24 @@ Create server environment config:
 
 Supported server environment variables:
 
-| Name | Required | Default |
-| --- | --- | --- |
-| MONGODB_URI | Yes | None |
-| JWT_SECRET | Yes | None |
-| JWT_REFRESH_SECRET | Yes | None |
-| JWT_ACCESS_EXPIRES_IN | No | 15m |
-| REFRESH_TOKEN_TTL_DAYS | No | 7 |
-| REFRESH_COOKIE_NAME | No | refreshToken |
-| CLIENT_ORIGIN | No | http://127.0.0.1:5173 |
-| NODE_ENV | No | development |
-| PORT | No | 3001 |
+| Name                   | Required | Default               |
+| ---------------------- | -------- | --------------------- |
+| MONGODB_URI            | Yes      | None                  |
+| JWT_SECRET             | Yes      | None                  |
+| JWT_REFRESH_SECRET     | Yes      | None                  |
+| JWT_ACCESS_EXPIRES_IN  | No       | 15m                   |
+| REFRESH_TOKEN_TTL_DAYS | No       | 7                     |
+| REFRESH_COOKIE_NAME    | No       | refreshToken          |
+| CLIENT_ORIGIN          | No       | http://127.0.0.1:5173 |
+| NODE_ENV               | No       | development           |
+| PORT                   | No       | 3001                  |
 
 Client environment variables (optional):
 
-| Name | Purpose | Default |
-| --- | --- | --- |
-| VITE_API_BASE_URL | API base URL | http://127.0.0.1:3001 |
-| VITE_KEYSTROKE_SYNC_INTERVAL_MS | Sync interval in ms | 5000 |
+| Name                            | Purpose             | Default               |
+| ------------------------------- | ------------------- | --------------------- |
+| VITE_API_BASE_URL               | API base URL        | http://127.0.0.1:3001 |
+| VITE_KEYSTROKE_SYNC_INTERVAL_MS | Sync interval in ms | 5000                  |
 
 ### Run in Development
 
@@ -256,12 +256,12 @@ npm run build
 
 ## Repository Structure
 
-| Path | Purpose |
-| --- | --- |
-| client | Frontend app and editor experience |
-| server | API, auth, sessions, analytics logic |
-| shared | Shared type contracts across packages |
-| package.json | Root workspace scripts |
+| Path         | Purpose                               |
+| ------------ | ------------------------------------- |
+| client       | Frontend app and editor experience    |
+| server       | API, auth, sessions, analytics logic  |
+| shared       | Shared type contracts across packages |
+| package.json | Root workspace scripts                |
 
 ## License
 

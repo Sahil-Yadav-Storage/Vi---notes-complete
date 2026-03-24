@@ -37,6 +37,26 @@ const RETRY_MAX_DELAY_MS = 30000;
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 
+const isClosedSessionError = (error: unknown) => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeAxiosError = error as {
+    response?: {
+      status?: number;
+      data?: {
+        error?: unknown;
+      };
+    };
+  };
+
+  return (
+    maybeAxiosError.response?.status === 400 &&
+    maybeAxiosError.response?.data?.error === "Session is closed"
+  );
+};
+
 const applyEditToActivePastes = (
   activePastes: ActivePasteRange[],
   changeStart: number,
@@ -313,6 +333,10 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
       return;
     }
 
+    if (hasClosedRef.current) {
+      return;
+    }
+
     await persistQueueRef.current;
 
     if (!navigator.onLine) {
@@ -356,7 +380,22 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
           keystrokes: pendingKeystrokes,
         };
 
-        await api.patch(`/api/session/${activeSessionId}`, payload);
+        try {
+          await api.patch(`/api/session/${activeSessionId}`, payload);
+        } catch (error) {
+          if (isClosedSessionError(error)) {
+            sessionIdRef.current = null;
+            setSessionId(null);
+            setSessionStatus("idle");
+            setLastSyncError(
+              "Detected a closed session during sync; continuing in a new session.",
+            );
+            continue;
+          }
+
+          throw error;
+        }
+
         await keystrokeQueue.ackThrough(maxKey);
         dropBufferedKeystrokes(pendingKeystrokes.length);
         resetRetryState();
@@ -401,6 +440,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
 
     isClosingRef.current = true;
     setSessionStatus("closing");
+    clearRetryTimer();
 
     try {
       await flushAndSync();
@@ -430,6 +470,8 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
       if (response.status === 200) {
         pendingCloseRef.current = false;
         hasClosedRef.current = true;
+        sessionIdRef.current = null;
+        setSessionId(null);
         setSessionStatus("closed");
       }
     } catch (err) {
@@ -439,7 +481,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     } finally {
       isClosingRef.current = false;
     }
-  }, [flushAndSync]);
+  }, [clearRetryTimer, flushAndSync]);
 
   useEffect(() => {
     closeSessionRef.current = closeCurrentSession;
