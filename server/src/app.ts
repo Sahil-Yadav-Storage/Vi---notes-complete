@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import sessionRoutes from "./routes/sessionRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import documentRoutes from "./routes/documentRoutes.js";
+import analyticsRoutes from './routes/analytics.js';
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use(
 );
 app.use(cookieParser());
 app.use(express.json());
+app.use(analyticsRoutes);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/documents", documentRoutes);
