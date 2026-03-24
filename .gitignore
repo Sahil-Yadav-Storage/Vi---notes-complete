@@ -14,6 +14,8 @@ node_modules/
 
 # build outputs and caches
 dist/
+client/dist/
+server/dist/
 build/
 coverage/
 .nyc_output/
@@ -34,6 +36,8 @@ lerna-debug.log*
 
 # misc local files
 *.local
+.envrc
+.direnv/
 tmp/
 temp/
 

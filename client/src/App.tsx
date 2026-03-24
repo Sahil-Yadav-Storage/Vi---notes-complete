@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import type { AccessTokenResponse } from "@shared/auth";
 import { api, setAccessToken } from "./api";
-import Editor from "./components/Editor";
-import Auth from "./components/Auth";
-import { SessionProvider } from "./contexts/SessionContext";
-import "./styles.css";
+import Navbar from "./components/Navbar";
+import DashboardPage from "./pages/DashboardPage";
+import LoginPage from "./pages/LoginPage";
+import NotFoundPage from "./pages/NotFoundPage";
+import RegisterPage from "./pages/RegisterPage";
+import GuestRoute from "./routes/GuestRoute";
+import ProtectedRoute from "./routes/ProtectedRoute";
 
 function App() {
+  const navigate = useNavigate();
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     const saved = localStorage.getItem("theme") as "dark" | "light" | null;
     if (saved) return saved;
@@ -72,53 +77,73 @@ function App() {
       await api.post("/api/auth/logout");
     } finally {
       setAccessTokenState(null);
+      navigate("/login", { replace: true });
     }
   };
-
-  if (isBootstrappingAuth) {
-    return <div className="app">Loading...</div>;
-  }
 
   const isAuth = !!accessToken;
 
   return (
-    <div className="app">
-      <div className="app-header">
-        <div className="header-inner">
-          <div className="header-left">
-            <label className="theme-switch">
-              <input
-                type="checkbox"
-                checked={theme === "light"}
-                onChange={toggleTheme}
-                aria-label="Toggle light theme"
-                title="Toggle light theme"
-              />
-              <span className="slider" />
-            </label>
-          </div>
+    <div className="app-shell">
+      {!isBootstrappingAuth && isAuth && (
+        <Navbar
+          isAuthenticated={isAuth}
+          isLightMode={theme === "light"}
+          onToggleTheme={toggleTheme}
+          onLogout={handleLogout}
+        />
+      )}
 
-          <h1 className="header-title">Vi-Notes Editor</h1>
-
-          <div className="header-right">
-            {isAuth && (
-              <button className="logout-btn" onClick={handleLogout}>
-                Logout
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="app-content">
-        {!isAuth ? (
-          <Auth onAuth={setAccessTokenState} />
+      <main
+        className={`page-shell${
+          !isBootstrappingAuth && !isAuth ? " page-shell-guest" : ""
+        }`}
+      >
+        {isBootstrappingAuth ? (
+          <div className="loading-card">Loading your workspace...</div>
         ) : (
-          <SessionProvider>
-            <Editor />
-          </SessionProvider>
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <Navigate to={isAuth ? "/dashboard" : "/login"} replace />
+              }
+            />
+
+            <Route
+              path="/login"
+              element={
+                <GuestRoute isAuthenticated={isAuth}>
+                  <LoginPage onAuth={setAccessTokenState} />
+                </GuestRoute>
+              }
+            />
+
+            <Route
+              path="/register"
+              element={
+                <GuestRoute isAuthenticated={isAuth}>
+                  <RegisterPage />
+                </GuestRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute isAuthenticated={isAuth}>
+                  <DashboardPage />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="*"
+              element={<NotFoundPage isAuthenticated={isAuth} />}
+            />
+          </Routes>
         )}
-      </div>
+      </main>
     </div>
   );
 }

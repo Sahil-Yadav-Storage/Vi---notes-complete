@@ -69,6 +69,21 @@ Implemented.
 
 ## Additional Features Implemented Beyond Original Scope
 
+### Auth-Gated UI and Routing
+
+- Separate routes for auth and dashboard: /login, /register, /dashboard
+- Guest-only and protected route guards to enforce access control
+- Navbar and writing dashboard shell render only for authenticated users
+- Root route redirects by auth state for predictable entry flow
+
+### UI System and Theme Updates
+
+- Tailwind CSS tooling and shadcn-style component primitives integrated in client
+- New app header/navbar with Dashboard, theme toggle, Contact, and Logout actions
+- Light mode base background: #F8F8F6
+- Dark mode base background: #22221F (static, no gradient overlay)
+- Guest pages use tighter top spacing for improved visual centering
+
 ### Authentication and Security Hardening
 
 - Refresh token rotation with server-side revocation tracking
@@ -219,7 +234,7 @@ From repository root:
 npm run dev
 ```
 
-- Client: Vite dev server (typically 5173)
+- Client: Vite dev server (typically 5173, auto-falls back if busy)
 - Server: Express API (default 3001)
 
 ### Typecheck
@@ -250,6 +265,7 @@ npm run build
 ## Tech Stack
 
 - Frontend: React, TypeScript, Vite, Axios
+- Frontend UI: Tailwind CSS and shadcn-style component patterns
 - Backend: Node.js, Express, TypeScript, Mongoose, Zod
 - Auth and Security: bcrypt, JWT, refresh token rotation, express-rate-limit
 - Shared Contracts: workspace package for common TypeScript types
