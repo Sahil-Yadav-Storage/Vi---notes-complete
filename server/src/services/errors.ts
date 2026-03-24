@@ -29,7 +29,7 @@ export class NotFoundError extends ServiceError {
 
 export class ConflictError extends ServiceError {
   constructor(message: string) {
-    super(message, 400, "CONFLICT");
+    super(message, 409, "CONFLICT");
   }
 }
 
@@ -39,7 +39,9 @@ export class InternalServiceError extends ServiceError {
   }
 }
 
-export const getServiceErrorResponse = (error: unknown): { statusCode: number; message: string } => {
+export const getServiceErrorResponse = (
+  error: unknown,
+): { statusCode: number; message: string } => {
   if (error instanceof ServiceError) {
     return { statusCode: error.statusCode, message: error.message };
   }

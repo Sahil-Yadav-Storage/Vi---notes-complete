@@ -1,13 +1,19 @@
 import type { Keystroke } from "@shared/keystroke";
 
 const DB_NAME = "vi_notes_sync";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "keystroke_queue";
 
 let openDbPromise: Promise<IDBDatabase> | null = null;
 
 export type QueuedKeystroke = {
   id: number;
+  documentId: string;
+  event: Keystroke;
+};
+
+type StoredKeystrokeRecord = {
+  documentId: string;
   event: Keystroke;
 };
 
@@ -165,14 +171,22 @@ const trimToCap = async (maxEvents: number) => {
   return oldestKeys.length;
 };
 
-const enqueue = async (events: Keystroke[], maxEvents: number) => {
+const enqueue = async (
+  documentId: string,
+  events: Keystroke[],
+  maxEvents: number,
+) => {
+  if (!documentId) {
+    throw new Error("documentId is required to enqueue keystrokes.");
+  }
+
   if (events.length === 0) {
     return 0;
   }
 
   await withStore("readwrite", async (store) => {
     for (const event of events) {
-      store.add(event);
+      store.add({ documentId, event } satisfies StoredKeystrokeRecord);
     }
   });
 
@@ -199,8 +213,60 @@ const peek = async (limit: number) => {
 
         results.push({
           id: cursor.key as number,
-          event: cursor.value as Keystroke,
+          documentId:
+            typeof (cursor.value as StoredKeystrokeRecord)?.documentId ===
+            "string"
+              ? (cursor.value as StoredKeystrokeRecord).documentId
+              : "",
+          event:
+            (cursor.value as StoredKeystrokeRecord)?.event ??
+            (cursor.value as Keystroke),
         });
+        cursor.continue();
+      };
+
+      request.onerror = () => {
+        reject(request.error ?? new Error("Failed reading queued keystrokes."));
+      };
+    });
+
+    return results;
+  });
+};
+
+const peekByDocument = async (documentId: string, limit: number) => {
+  if (!documentId || limit <= 0) {
+    return [] as QueuedKeystroke[];
+  }
+
+  return withStore("readonly", async (store) => {
+    const results: QueuedKeystroke[] = [];
+    const request = store.openCursor();
+
+    await new Promise<void>((resolve, reject) => {
+      request.onsuccess = () => {
+        const cursor = request.result;
+
+        if (!cursor || results.length >= limit) {
+          resolve();
+          return;
+        }
+
+        const value = cursor.value as StoredKeystrokeRecord | Keystroke;
+        const queuedDocumentId =
+          typeof (value as StoredKeystrokeRecord)?.documentId === "string"
+            ? (value as StoredKeystrokeRecord).documentId
+            : "";
+
+        if (queuedDocumentId === documentId) {
+          results.push({
+            id: cursor.key as number,
+            documentId: queuedDocumentId,
+            event:
+              (value as StoredKeystrokeRecord).event ?? (value as Keystroke),
+          });
+        }
+
         cursor.continue();
       };
 
@@ -220,6 +286,18 @@ const ackThrough = async (maxInclusiveKey: number) => {
   });
 };
 
+const ackKeys = async (keys: number[]) => {
+  if (keys.length === 0) {
+    return;
+  }
+
+  await withStore("readwrite", async (store) => {
+    for (const key of keys) {
+      store.delete(key);
+    }
+  });
+};
+
 const clear = async () => {
   await withStore("readwrite", async (store) => {
     store.clear();
@@ -229,7 +307,9 @@ const clear = async () => {
 export const keystrokeQueue = {
   enqueue,
   peek,
+  peekByDocument,
   ackThrough,
+  ackKeys,
   count,
   clear,
 };

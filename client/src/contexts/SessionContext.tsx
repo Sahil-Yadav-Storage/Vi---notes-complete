@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import type { Keystroke } from "@shared/keystroke";
-import type { CloseSessionResponse, SessionUpsertInput } from "@shared/session";
+import type { CloseSessionResponse } from "@shared/session";
 import { keystrokeQueue } from "../offline/keystrokeQueue";
 import {
   SessionContext,
@@ -17,6 +17,8 @@ type ActivePasteRange = {
 
 type SessionProviderProps = {
   children: React.ReactNode;
+  activeDocumentId: string;
+  initialSessionId?: string | null;
 };
 
 const DEFAULT_SYNC_INTERVAL_MS = 5000;
@@ -177,8 +179,12 @@ const getChangeBounds = (before: string, after: string) => {
   };
 };
 
-export const SessionProvider = ({ children }: SessionProviderProps) => {
-  const [sessionId, setSessionId] = useState<string | null>(null);
+export const SessionProvider = ({
+  children,
+  activeDocumentId,
+  initialSessionId = null,
+}: SessionProviderProps) => {
+  const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("idle");
   const [keystrokes, setKeystrokes] = useState<Keystroke[]>([]);
   const [lastSyncError, setLastSyncError] = useState<string | null>(null);
@@ -228,29 +234,38 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     setKeystrokes(keystrokesRef.current);
   }, []);
 
-  const persistKeystrokes = useCallback((incoming: Keystroke[]) => {
-    if (incoming.length === 0) {
-      return;
-    }
+  const persistKeystrokes = useCallback(
+    (incoming: Keystroke[]) => {
+      if (incoming.length === 0) {
+        return;
+      }
 
-    persistQueueRef.current = persistQueueRef.current
-      .then(async () => {
-        const dropped = await keystrokeQueue.enqueue(
-          incoming,
-          MAX_PERSISTED_UNSYNCED_EVENTS,
-        );
+      if (!activeDocumentId) {
+        setLastSyncError("No active file selected for sync.");
+        return;
+      }
 
-        if (dropped > 0) {
-          setLastSyncError(
-            `Offline queue exceeded ${MAX_PERSISTED_UNSYNCED_EVENTS} events; dropped ${dropped} oldest persisted events.`,
+      persistQueueRef.current = persistQueueRef.current
+        .then(async () => {
+          const dropped = await keystrokeQueue.enqueue(
+            activeDocumentId,
+            incoming,
+            MAX_PERSISTED_UNSYNCED_EVENTS,
           );
-        }
-      })
-      .catch((error) => {
-        console.error(error);
-        setLastSyncError("Failed to persist keystrokes locally.");
-      });
-  }, []);
+
+          if (dropped > 0) {
+            setLastSyncError(
+              `Offline queue exceeded ${MAX_PERSISTED_UNSYNCED_EVENTS} events; dropped ${dropped} oldest persisted events.`,
+            );
+          }
+        })
+        .catch((error) => {
+          console.error(error);
+          setLastSyncError("Failed to persist keystrokes locally.");
+        });
+    },
+    [activeDocumentId],
+  );
 
   const pushKeystrokes = useCallback(
     (incoming: Keystroke[]) => {
@@ -282,24 +297,24 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     setKeystrokes([]);
   }, []);
 
-  const ensureSession = useCallback(async (initialKeystrokes: Keystroke[]) => {
-    if (sessionIdRef.current) return sessionIdRef.current;
+  const ensureSession = useCallback(
+    async (initialKeystrokes: Keystroke[]) => {
+      if (sessionIdRef.current) return sessionIdRef.current;
 
-    if (initialKeystrokes.length === 0) {
-      return null;
-    }
+      const payload = {
+        documentId: activeDocumentId,
+        keystrokes: initialKeystrokes,
+      };
 
-    const payload: SessionUpsertInput = {
-      keystrokes: initialKeystrokes,
-    };
-
-    const res = await api.post("/api/session", payload);
-    const nextSessionId = res.data.sessionId as string;
-    sessionIdRef.current = nextSessionId;
-    setSessionId(nextSessionId);
-    setSessionStatus("active");
-    return nextSessionId;
-  }, []);
+      const res = await api.post("/api/session", payload);
+      const nextSessionId = res.data.sessionId as string;
+      sessionIdRef.current = nextSessionId;
+      setSessionId(nextSessionId);
+      setSessionStatus("active");
+      return nextSessionId;
+    },
+    [activeDocumentId],
+  );
 
   const flushKeystrokes = useCallback((): Keystroke[] => {
     const pending = enrichPastesWithEditedLater(keystrokesRef.current);
@@ -348,7 +363,10 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
 
     try {
       while (true) {
-        const pendingRecords = await keystrokeQueue.peek(SYNC_BATCH_SIZE);
+        const pendingRecords = await keystrokeQueue.peekByDocument(
+          activeDocumentId,
+          SYNC_BATCH_SIZE,
+        );
         if (pendingRecords.length === 0) {
           resetRetryState();
           return;
@@ -357,11 +375,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
         const pendingKeystrokes = enrichPastesWithEditedLater(
           pendingRecords.map((record) => record.event),
         );
-        const maxKey = pendingRecords[pendingRecords.length - 1]?.id;
-
-        if (maxKey === undefined) {
-          return;
-        }
+        const queuedKeys = pendingRecords.map((record) => record.id);
 
         const activeSessionId = sessionIdRef.current;
 
@@ -371,12 +385,12 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
             return;
           }
 
-          await keystrokeQueue.ackThrough(maxKey);
+          await keystrokeQueue.ackKeys(queuedKeys);
           dropBufferedKeystrokes(pendingKeystrokes.length);
           continue;
         }
 
-        const payload: SessionUpsertInput = {
+        const payload = {
           keystrokes: pendingKeystrokes,
         };
 
@@ -396,7 +410,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
           throw error;
         }
 
-        await keystrokeQueue.ackThrough(maxKey);
+        await keystrokeQueue.ackKeys(queuedKeys);
         dropBufferedKeystrokes(pendingKeystrokes.length);
         resetRetryState();
       }
@@ -418,7 +432,13 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     } finally {
       isSyncingRef.current = false;
     }
-  }, [dropBufferedKeystrokes, ensureSession, resetRetryState, scheduleRetry]);
+  }, [
+    activeDocumentId,
+    dropBufferedKeystrokes,
+    ensureSession,
+    resetRetryState,
+    scheduleRetry,
+  ]);
 
   useEffect(() => {
     flushPersistentQueueRef.current = flushPersistentQueue;
@@ -445,9 +465,12 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     try {
       await flushAndSync();
 
-      const pendingPersisted = await keystrokeQueue.count();
+      const pendingPersisted = await keystrokeQueue.peekByDocument(
+        activeDocumentId,
+        1,
+      );
 
-      if (pendingPersisted > 0) {
+      if (pendingPersisted.length > 0) {
         pendingCloseRef.current = true;
         setLastSyncError(
           "Session close deferred because unsynced events remain buffered locally.",
@@ -481,7 +504,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     } finally {
       isClosingRef.current = false;
     }
-  }, [clearRetryTimer, flushAndSync]);
+  }, [activeDocumentId, clearRetryTimer, flushAndSync]);
 
   useEffect(() => {
     closeSessionRef.current = closeCurrentSession;
@@ -505,12 +528,23 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
   }, [flushPersistentQueue, sessionStatus]);
 
   useEffect(() => {
+    sessionIdRef.current = initialSessionId;
+    setSessionId(initialSessionId);
+    hasClosedRef.current = false;
+    pendingCloseRef.current = false;
+    setSessionStatus(initialSessionId ? "active" : "idle");
+  }, [initialSessionId]);
+
+  useEffect(() => {
     let isCancelled = false;
 
     const hydrateBufferedKeystrokes = async () => {
       try {
         await persistQueueRef.current;
-        const pendingRecords = await keystrokeQueue.peek(MAX_BUFFERED_EVENTS);
+        const pendingRecords = await keystrokeQueue.peekByDocument(
+          activeDocumentId,
+          MAX_BUFFERED_EVENTS,
+        );
 
         if (isCancelled || pendingRecords.length === 0) {
           return;
@@ -533,7 +567,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     return () => {
       isCancelled = true;
     };
-  }, [scheduleSync]);
+  }, [activeDocumentId, scheduleSync]);
 
   useEffect(() => {
     const handlePageHide = () => {
@@ -548,8 +582,11 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
           return;
         }
 
-        const pendingPersisted = await keystrokeQueue.count();
-        if (pendingPersisted > 0) {
+        const pendingPersisted = await keystrokeQueue.peekByDocument(
+          activeDocumentId,
+          1,
+        );
+        if (pendingPersisted.length > 0) {
           return;
         }
 
@@ -567,7 +604,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
       window.removeEventListener("online", handleOnline);
       void closeSessionRef.current();
     };
-  }, [clearRetryTimer]);
+  }, [activeDocumentId, clearRetryTimer]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

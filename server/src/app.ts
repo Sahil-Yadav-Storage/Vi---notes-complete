@@ -4,6 +4,7 @@ import cors from "cors";
 import { config } from "./config.js";
 import sessionRoutes from "./routes/sessionRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import documentRoutes from "./routes/documentRoutes.js";
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use(cookieParser());
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
+app.use("/api/documents", documentRoutes);
 app.use("/api/session", sessionRoutes);
 
 export default app;

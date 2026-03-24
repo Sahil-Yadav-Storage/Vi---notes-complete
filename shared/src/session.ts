@@ -1,7 +1,25 @@
 import type { Keystroke } from "./keystroke";
 
+export interface CreateSessionInput {
+  documentId: string;
+  keystrokes: Keystroke[];
+}
+
 export interface SessionUpsertInput {
   keystrokes: Keystroke[];
+}
+
+export interface SessionStartResponse {
+  sessionId: string;
+  resumed: boolean;
+}
+
+export interface SessionSummary {
+  _id: string;
+  documentId?: string;
+  status: "active" | "closed";
+  createdAt: string;
+  closedAt?: string;
 }
 
 export interface SessionAnalytics {
@@ -21,6 +39,7 @@ export interface SessionAnalytics {
 export interface CloseSessionResponse {
   message: string;
   sessionId: string;
+  documentId?: string;
   analytics: SessionAnalytics;
   closedAt: string;
   alreadyClosed: boolean;

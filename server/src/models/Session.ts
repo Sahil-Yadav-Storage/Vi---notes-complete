@@ -39,6 +39,11 @@ const SessionAnalyticsSchema = new mongoose.Schema(
 
 const SessionSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  documentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Document",
+    required: false,
+  },
   keystrokes: [KeystrokeSchema],
   status: {
     type: String,

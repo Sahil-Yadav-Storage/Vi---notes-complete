@@ -36,6 +36,8 @@ lerna-debug.log*
 
 # misc local files
 *.local
+*.orig
+*.rej
 .envrc
 .direnv/
 tmp/

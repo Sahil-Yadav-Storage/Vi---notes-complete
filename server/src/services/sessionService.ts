@@ -1,7 +1,12 @@
 import { Types } from "mongoose";
-import type { CloseSessionResponse, SessionUpsertInput } from "@shared/session";
+import type {
+  CloseSessionResponse,
+  CreateSessionInput,
+  SessionUpsertInput,
+} from "@shared/session";
 import type { Keystroke } from "@shared/keystroke";
 import Session from "../models/Session.js";
+import Document from "../models/Document.js";
 import { NotFoundError, UnauthorizedError, ValidationError } from "./errors.js";
 import { computeSessionAnalytics } from "./analysisService.js";
 
@@ -9,10 +14,17 @@ const ROLLING_WINDOW_SIZE = 5;
 
 type SessionWithLifecycle = {
   _id: Types.ObjectId;
+  documentId?: Types.ObjectId;
   status?: "active" | "closed";
   closedAt?: Date;
   analytics?: CloseSessionResponse["analytics"];
   keystrokes: SessionUpsertInput["keystrokes"];
+  save: () => Promise<unknown>;
+};
+
+type DocumentForSession = {
+  _id: Types.ObjectId;
+  lastOpenedSessionId?: Types.ObjectId;
   save: () => Promise<unknown>;
 };
 
@@ -295,31 +307,98 @@ const assertUserId = (userId?: string): string => {
   return userId;
 };
 
-export const createSession = async (
-  userId: string | undefined,
-  input: Partial<SessionUpsertInput>,
-) => {
-  const ownerId = assertUserId(userId);
-  const { keystrokes } = input;
+const assertValidObjectId = (value: string, label: string) => {
+  if (!Types.ObjectId.isValid(value)) {
+    throw new ValidationError(`Invalid ${label}`);
+  }
+};
 
-  if (!Array.isArray(keystrokes)) {
-    throw new ValidationError("keystrokes must be an array");
+const getOwnedDocument = async (
+  ownerId: string,
+  documentId: string,
+): Promise<DocumentForSession> => {
+  assertValidObjectId(documentId, "document id");
+
+  const document = (await Document.findOne({
+    _id: new Types.ObjectId(documentId),
+    user: new Types.ObjectId(ownerId),
+  })) as DocumentForSession | null;
+
+  if (!document) {
+    throw new NotFoundError("File not found");
   }
 
-  validateKeystrokes(keystrokes);
+  return document;
+};
+
+const setLastOpenedSession = async (
+  document: DocumentForSession,
+  sessionId: Types.ObjectId,
+) => {
+  document.lastOpenedSessionId = sessionId;
+  await document.save();
+};
+
+export const startOrResumeSession = async (
+  userId: string | undefined,
+  input: Partial<CreateSessionInput>,
+) => {
+  const ownerId = assertUserId(userId);
+
+  if (typeof input.documentId !== "string" || input.documentId.trim() === "") {
+    throw new ValidationError("documentId is required");
+  }
+
+  const document = await getOwnedDocument(ownerId, input.documentId);
+  const initialKeystrokes = Array.isArray(input.keystrokes)
+    ? input.keystrokes
+    : [];
+
+  validateKeystrokes(initialKeystrokes);
+
+  if (document.lastOpenedSessionId) {
+    const existingSession = (await Session.findOne({
+      _id: document.lastOpenedSessionId,
+      user: new Types.ObjectId(ownerId),
+      documentId: new Types.ObjectId(input.documentId),
+      status: "active",
+    })) as SessionWithLifecycle | null;
+
+    if (existingSession) {
+      if (initialKeystrokes.length > 0) {
+        const normalizedKeystrokes = normalizeKeystrokeTiming(
+          initialKeystrokes as Keystroke[],
+          existingSession.keystrokes as Keystroke[],
+        );
+        existingSession.keystrokes.push(...normalizedKeystrokes);
+        await existingSession.save();
+      }
+
+      return { sessionId: existingSession._id.toString(), resumed: true };
+    }
+  }
 
   const normalizedKeystrokes = normalizeKeystrokeTiming(
-    keystrokes as Keystroke[],
+    initialKeystrokes as Keystroke[],
   );
 
   const session = new Session({
     user: new Types.ObjectId(ownerId),
+    documentId: new Types.ObjectId(input.documentId),
     keystrokes: normalizedKeystrokes,
   });
 
   await session.save();
+  await setLastOpenedSession(document, session._id);
 
-  return { sessionId: session._id };
+  return { sessionId: session._id.toString(), resumed: false };
+};
+
+export const createSession = async (
+  userId: string | undefined,
+  input: Partial<CreateSessionInput>,
+) => {
+  return startOrResumeSession(userId, input);
 };
 
 export const appendToSession = async (
@@ -329,9 +408,7 @@ export const appendToSession = async (
 ): Promise<void> => {
   const ownerId = assertUserId(userId);
 
-  if (!sessionId) {
-    throw new ValidationError("Invalid session id");
-  }
+  assertValidObjectId(sessionId, "session id");
 
   const { keystrokes } = input;
 
@@ -372,9 +449,7 @@ export const closeSession = async (
 ): Promise<CloseSessionResponse> => {
   const ownerId = assertUserId(userId);
 
-  if (!sessionId) {
-    throw new ValidationError("Invalid session id");
-  }
+  assertValidObjectId(sessionId, "session id");
 
   const session = (await Session.findOne({
     _id: new Types.ObjectId(sessionId),
@@ -389,6 +464,7 @@ export const closeSession = async (
     return {
       message: "Session already closed",
       sessionId: session._id.toString(),
+      ...(session.documentId && { documentId: session.documentId.toString() }),
       analytics: session.analytics,
       closedAt: session.closedAt.toISOString(),
       alreadyClosed: true,
@@ -406,6 +482,7 @@ export const closeSession = async (
   return {
     message: "Session closed",
     sessionId: session._id.toString(),
+    ...(session.documentId && { documentId: session.documentId.toString() }),
     analytics,
     closedAt: closedAt.toISOString(),
     alreadyClosed: false,
@@ -427,10 +504,7 @@ export const getSessionById = async (
   sessionId: string,
 ) => {
   const ownerId = assertUserId(userId);
-
-  if (!sessionId) {
-    throw new ValidationError("Invalid session id");
-  }
+  assertValidObjectId(sessionId, "session id");
 
   const session = await Session.findOne({
     _id: new Types.ObjectId(sessionId),

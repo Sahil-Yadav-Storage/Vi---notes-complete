@@ -1,4 +1,5 @@
 import {
+  Files,
   LayoutDashboard,
   LogOut,
   Mail,
@@ -35,6 +36,17 @@ const Navbar = ({
         </Link>
 
         <div className="navbar-actions">
+          <Button
+            asChild
+            variant={location.pathname === "/files" ? "default" : "ghost"}
+            size="sm"
+          >
+            <Link to="/files">
+              <Files size={16} />
+              Files
+            </Link>
+          </Button>
+
           <Button
             asChild
             variant={location.pathname === "/dashboard" ? "default" : "ghost"}

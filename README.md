@@ -90,6 +90,8 @@ Implemented.
 - Hashed refresh token persistence (SHA-256)
 - Login and registration rate limiting
 - Protected session endpoints via bearer-token middleware
+- Access token persistence uses sessionStorage (tab-scoped)
+- Auth session state survives refresh within a tab and clears on tab close
 
 ### Privacy and Data Protection
 
@@ -115,6 +117,7 @@ Implemented.
 - Monorepo workspaces: client, server, shared
 - Shared TypeScript contracts used across frontend and backend
 - Type-safe API payloads and response contracts
+- Mongoose findOneAndUpdate usage aligned with returnDocument: "after"
 
 ## High-Level Architecture
 

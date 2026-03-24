@@ -5,13 +5,54 @@ import type { InternalAxiosRequestConfig } from "axios";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3001";
+const AUTH_SESSION_STORAGE_KEY = "vi-notes.auth";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
 });
 
-let accessToken: string | null = null;
+type StoredAuthSession = {
+  accessToken: string;
+};
+
+const loadAccessTokenFromSession = (): string | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredAuthSession>;
+    return typeof parsed.accessToken === "string" ? parsed.accessToken : null;
+  } catch {
+    window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+    return null;
+  }
+};
+
+const persistAccessTokenToSession = (token: string | null) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!token) {
+    window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+    return;
+  }
+
+  const payload: StoredAuthSession = { accessToken: token };
+  window.sessionStorage.setItem(
+    AUTH_SESSION_STORAGE_KEY,
+    JSON.stringify(payload),
+  );
+};
+
+let accessToken: string | null = loadAccessTokenFromSession();
 
 interface RetriableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
@@ -20,6 +61,7 @@ interface RetriableRequestConfig extends InternalAxiosRequestConfig {
 
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
+  persistAccessTokenToSession(token);
 };
 
 export const getAccessToken = () => accessToken;

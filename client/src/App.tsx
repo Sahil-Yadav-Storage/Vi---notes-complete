@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import type { AccessTokenResponse } from "@shared/auth";
-import { api, setAccessToken } from "./api";
+import { api, getAccessToken, setAccessToken } from "./api";
 import Navbar from "./components/Navbar";
 import DashboardPage from "./pages/DashboardPage";
+import FilesPage from "./pages/FilesPage";
 import LoginPage from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -22,8 +23,12 @@ function App() {
     return prefersDark ? "dark" : "light";
   });
 
-  const [accessToken, setAccessTokenState] = useState<string | null>(null);
-  const [isBootstrappingAuth, setIsBootstrappingAuth] = useState(true);
+  const [accessToken, setAccessTokenState] = useState<string | null>(() =>
+    getAccessToken(),
+  );
+  const [isBootstrappingAuth, setIsBootstrappingAuth] = useState(
+    () => getAccessToken() === null,
+  );
 
   useEffect(() => {
     if (theme === "light") {
@@ -40,6 +45,11 @@ function App() {
   }, [accessToken]);
 
   useEffect(() => {
+    if (getAccessToken()) {
+      setIsBootstrappingAuth(false);
+      return;
+    }
+
     let isMounted = true;
 
     const bootstrapAuth = async () => {
@@ -125,6 +135,15 @@ function App() {
                 <GuestRoute isAuthenticated={isAuth}>
                   <RegisterPage />
                 </GuestRoute>
+              }
+            />
+
+            <Route
+              path="/files"
+              element={
+                <ProtectedRoute isAuthenticated={isAuth}>
+                  <FilesPage />
+                </ProtectedRoute>
               }
             />
 

@@ -1,19 +1,21 @@
-import { useState } from "react";
 import { useKeystrokeLogger } from "../hooks/useKeystrokeLogger";
 import { useSessionContext } from "../contexts/sessionContextStore";
 import Toast from "./Toast";
 
-const Editor = () => {
-  const [text, setText] = useState("");
+interface EditorProps {
+  value: string;
+  onChange: (value: string) => void;
+}
 
+const Editor = ({ value, onChange }: EditorProps) => {
   const { handleKeyDown, handleKeyUp, logPaste, logTextChange, scheduleSync } =
     useKeystrokeLogger();
   const { lastSyncError, clearLastSyncError } = useSessionContext();
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    logTextChange(text, value);
-    setText(value);
+    const nextValue = e.target.value;
+    logTextChange(value, nextValue);
+    onChange(nextValue);
     scheduleSync();
   };
 
@@ -21,7 +23,7 @@ const Editor = () => {
     <div className="editor-wrapper">
       <textarea
         placeholder="Start writing..."
-        value={text}
+        value={value}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}

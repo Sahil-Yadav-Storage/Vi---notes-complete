@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import type { SessionUpsertInput } from "@shared/session";
+import type { CreateSessionInput, SessionUpsertInput } from "@shared/session";
 import {
   appendToSession,
   closeSession,
@@ -11,10 +11,12 @@ import { getServiceErrorResponse } from "../services/errors.js";
 
 export const saveSession = async (req: Request, res: Response) => {
   try {
-    const body = req.body as Partial<SessionUpsertInput>;
-    const { sessionId } = await createSession(req.userId, body);
+    const body = req.body as Partial<CreateSessionInput>;
+    const { sessionId, resumed } = await createSession(req.userId, body);
 
-    return res.status(201).json({ message: "Session saved", sessionId });
+    return res
+      .status(201)
+      .json({ message: "Session ready", sessionId, resumed });
   } catch (error) {
     const { statusCode, message } = getServiceErrorResponse(error);
     console.error(error);
