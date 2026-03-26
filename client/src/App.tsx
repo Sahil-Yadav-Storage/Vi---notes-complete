@@ -10,7 +10,7 @@ import NotFoundPage from "./pages/NotFoundPage";
 import RegisterPage from "./pages/RegisterPage";
 import GuestRoute from "./routes/GuestRoute";
 import ProtectedRoute from "./routes/ProtectedRoute";
-
+import FileOpen from "./pages/FileOpen";
 function App() {
   const navigate = useNavigate();
   const [theme, setTheme] = useState<"dark" | "light">(() => {
@@ -155,12 +155,21 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/fileOpen"
+              element={
+                <ProtectedRoute isAuthenticated={isAuth}>
+                  <FileOpen />
+                </ProtectedRoute>
+              }
+            />
 
             <Route
               path="*"
               element={<NotFoundPage isAuthenticated={isAuth} />}
             />
           </Routes>
+          
         )}
       </main>
     </div>

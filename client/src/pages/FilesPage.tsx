@@ -44,11 +44,11 @@ const FilesPage = () => {
     }
 
     setNewName("");
-    navigate(`/dashboard?documentId=${created._id}`);
+    navigate(`/fileopen?fileId=${created._id}&fileName=${encodeURIComponent(trimmed)}`);
   };
 
-  const handleOpen = (documentId: string) => {
-    navigate(`/dashboard?documentId=${documentId}`);
+  const handleOpen = (documentId: string, fileName: string) => {
+    navigate(`/fileopen?fileId=${documentId}&fileName=${encodeURIComponent(fileName)}`);
   };
 
   const handleRename = async (documentId: string) => {
@@ -172,7 +172,7 @@ const FilesPage = () => {
                     <button
                       type="button"
                       className="files-open-link"
-                      onClick={() => handleOpen(document._id)}
+                      onClick={() => handleOpen(document._id, document.name)}
                     >
                       {document.name}
                     </button>
@@ -204,7 +204,7 @@ const FilesPage = () => {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => handleOpen(document._id)}
+                        onClick={() => handleOpen(document._id, document.name)}
                       >
                         Open
                       </Button>

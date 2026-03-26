@@ -1,5 +1,5 @@
 import express from 'express';
-import AnalyticsPage from "C:\Users\SAHIL YADAV\Desktop\Vi---notes-complete-main\client\src\pages\AnalyticsPage"; // Adjust the path if necessary
+import AnalyticsPage from "../../../client/src/pages/AnalyticsPage"; // Adjust the path if necessary
 
 const router = express.Router();
 

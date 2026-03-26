@@ -44,6 +44,12 @@ const SessionSchema = new mongoose.Schema({
     ref: "Document",
     required: false,
   },
+  code: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true, // Allow multiple null values
+  },
   keystrokes: [KeystrokeSchema],
   status: {
     type: String,

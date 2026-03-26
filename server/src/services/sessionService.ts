@@ -221,6 +221,11 @@ const assertValidRange = (
   }
 };
 
+// Generate unique session code
+const generateSessionCode = (): string => {
+  return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+};
+
 const validateKeystrokes = (keystrokes: unknown[]) => {
   for (let index = 0; index < keystrokes.length; index += 1) {
     const item = keystrokes[index];
@@ -385,6 +390,7 @@ export const startOrResumeSession = async (
   const session = new Session({
     user: new Types.ObjectId(ownerId),
     documentId: new Types.ObjectId(input.documentId),
+    code: generateSessionCode(), // Generate unique session code
     keystrokes: normalizedKeystrokes,
   });
 
