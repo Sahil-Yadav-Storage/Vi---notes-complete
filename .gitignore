@@ -1,0 +1,156 @@
+# ─── Dependencies ────────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.pnp.*
+yarn.lock
+pnpm-lock.yaml
+
+# ─── Environment Files ───────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!server/.env.example
+**/.env
+**/.env.*
+!**/.env.example
+.envrc
+.direnv/
+
+# ─── Build Outputs & Caches ──────────────────────────────────────────────────
+dist/
+client/dist/
+server/dist/
+shared/dist/
+build/
+out/
+coverage/
+.nyc_output/
+.cache/
+.turbo/
+.vite/
+.next/
+.nuxt/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.pid
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─── Testing ─────────────────────────────────────────────────────────────────
+.jest/
+.vitest/
+__tests__/coverage/
+*.test.js.snap
+
+# ─── Temporary & Misc Files ──────────────────────────────────────────────────
+*.local
+*.orig
+*.rej
+*.swp
+*.swo
+*~
+tmp/
+temp/
+.tmp/
+
+# ─── Local Data Stores ───────────────────────────────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# ─── OS Specific ─────────────────────────────────────────────────────────────
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+.nfs*
+
+# ─── IDE & Editors ───────────────────────────────────────────────────────────
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# Visual Studio
+.vs/
+
+# ─── Project Specific ────────────────────────────────────────────────────────
+.history/
+.vscode-test/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Package manager locks (keep package-lock.json for npm)
+# Uncomment if using yarn or pnpm exclusively
+# package-lock.json
