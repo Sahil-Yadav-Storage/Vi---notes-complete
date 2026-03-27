@@ -15,24 +15,22 @@ interface Session {
   pastes: number;
   wpm: number;
   pauses: number;
-  duration: number; // seconds
+  duration: number;
   content: string;
 }
 
 interface FileData {
   id: string;
   name: string;
-  content: string; // HTML string from contenteditable
+  content: string;
   sessions: Session[];
   lastModified: number;
-  // Formatting state - per file
   font: string;
   fontSize: number;
   textColor: string;
   bgColor: string;
   customColor: string;
   customBg: string;
-  // Scroll position
   scrollPosition: number;
 }
 
@@ -45,7 +43,7 @@ interface DocumentDetail {
 }
 
 interface EditorProps {
-  fileId: string; // The ID of the file being edited
+  fileId: string;
   fileName: string;
   onClose?: () => void;
 }
@@ -54,7 +52,21 @@ interface EditorProps {
 
 const STORAGE_KEY = "writing_tracker_files";
 
-// Default formatting values
+// ── Draft cache helpers ───────────────────────────────────────────────────────
+const DRAFT_PREFIX = "draft_";
+
+function saveDraft(fileId: string, content: string) {
+  localStorage.setItem(`${DRAFT_PREFIX}${fileId}`, content);
+}
+
+function loadDraft(fileId: string): string | null {
+  return localStorage.getItem(`${DRAFT_PREFIX}${fileId}`);
+}
+
+function clearDraft(fileId: string) {
+  localStorage.removeItem(`${DRAFT_PREFIX}${fileId}`);
+}
+
 const DEFAULT_FORMATTING = {
   font: "Calibri",
   fontSize: 14,
@@ -65,7 +77,6 @@ const DEFAULT_FORMATTING = {
   scrollPosition: 0,
 };
 
-// Migrate old data structure to new one with formatting properties
 function migrationFileData(file: any): FileData {
   return {
     id: file.id || "",
@@ -86,7 +97,6 @@ function migrationFileData(file: any): FileData {
 function loadFiles(): Record<string, FileData> {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-    // Migrate all old data to new format
     const migratedData: Record<string, FileData> = {};
     for (const fileId in data) {
       migratedData[fileId] = migrationFileData(data[fileId]);
@@ -104,7 +114,6 @@ function saveFiles(files: Record<string, FileData>) {
 function getFileData(fileId: string, fileName: string): FileData {
   const files = loadFiles();
   if (files[fileId]) {
-    // Ensure all properties exist
     return migrationFileData(files[fileId]);
   }
   return {
@@ -173,7 +182,7 @@ const FONT_SIZE_CLASS_MAP: Record<number, string> = {
   72: styles.fontSize72,
 };
 
-const PAUSE_THRESHOLD_MS = 3000; // 3s of inactivity = a pause
+const PAUSE_THRESHOLD_MS = 3000;
 
 function Editor({ fileId, fileName, onClose }: EditorProps) {
   const [activeTab, setActiveTab] = useState<"overview" | "sessions" | "write">(
@@ -187,8 +196,8 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
     type: "success" | "error";
   } | null>(null);
 
-  // Write-tab state - Initialize from DEFAULT_FORMATTING (will be updated by useEffect)
   const editorRef = useRef<HTMLDivElement>(null);
+  const isSavingRef = useRef(false);
   const [font, setFont] = useState(DEFAULT_FORMATTING.font);
   const [fontSize, setFontSize] = useState(DEFAULT_FORMATTING.fontSize);
   const [textColor, setTextColor] = useState(DEFAULT_FORMATTING.textColor);
@@ -198,11 +207,11 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
   );
   const [customBg, setCustomBg] = useState(DEFAULT_FORMATTING.customBg);
 
-  // Session tracking
   const [wpm, setWpm] = useState(0);
   const [pauses, setPauses] = useState(0);
   const [edits, setEdits] = useState(0);
   const [pastes, setPastes] = useState(0);
+  const [pasteDetected, setPasteDetected] = useState(false);
 
   const sessionStartRef = useRef<number>(Date.now());
   const lastKeystrokeRef = useRef<number>(Date.now());
@@ -211,7 +220,33 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
   const startWordCountRef = useRef<number>(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [pasteDetected, setPasteDetected] = useState(false);
+  // Keep latest formatting in refs so the Ctrl+S window listener always
+  // reads current values without needing to be recreated.
+  const fontRef = useRef(font);
+  const fontSizeRef = useRef(fontSize);
+  const textColorRef = useRef(textColor);
+  const bgColorRef = useRef(bgColor);
+  const customColorRef = useRef(customColor);
+  const customBgRef = useRef(customBg);
+
+  useEffect(() => {
+    fontRef.current = font;
+  }, [font]);
+  useEffect(() => {
+    fontSizeRef.current = fontSize;
+  }, [fontSize]);
+  useEffect(() => {
+    textColorRef.current = textColor;
+  }, [textColor]);
+  useEffect(() => {
+    bgColorRef.current = bgColor;
+  }, [bgColor]);
+  useEffect(() => {
+    customColorRef.current = customColor;
+  }, [customColor]);
+  useEffect(() => {
+    customBgRef.current = customBg;
+  }, [customBg]);
 
   // ── Fetch document from database and sync to localStorage ────────────────
 
@@ -222,12 +257,9 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
           `/api/documents/${fileId}`,
         );
         const dbDocument = response.data;
-
-        // Always load or initialize file data properly
         const files = loadFiles();
 
         if (!files[fileId]) {
-          // New file: create with database content and empty sessions
           files[fileId] = {
             id: fileId,
             name: dbDocument.name,
@@ -245,59 +277,50 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
           saveFiles(files);
           setFileData(files[fileId]);
         } else {
-          // Existing file: ensure migration of old data, preserve all local data
           files[fileId] = migrationFileData(files[fileId]);
           files[fileId].name = dbDocument.name;
           saveFiles(files);
-          // Use the existing localStorage data (with all sessions)
           setFileData(files[fileId]);
         }
       } catch (error) {
         console.error("Failed to fetch document from database:", error);
-        // Fall back to localStorage data if fetch fails
-        const fallbackData = getFileData(fileId, fileName);
-        setFileData(fallbackData);
+        setFileData(getFileData(fileId, fileName));
       }
     };
 
     void fetchAndInitDocument();
   }, [fileId]);
 
-  // ── Init editor content ────────────────────────────────────────────────────
+  // ── Init editor content — prefer draft over saved content ─────────────────
 
   useEffect(() => {
-    // Load content even if isLoadingFromDb is true, as long as we have fileData
     if (!fileData) return;
 
-    // Load content from the latest saved session, or fall back to the generic content property
+    const draft = loadDraft(fileId);
     const contentToLoad =
-      fileData.sessions && fileData.sessions.length > 0
+      draft ??
+      (fileData.sessions && fileData.sessions.length > 0
         ? fileData.sessions[fileData.sessions.length - 1].content
-        : fileData.content || "";
+        : fileData.content || "");
 
     if (editorRef.current) {
       editorRef.current.innerHTML = contentToLoad;
-      // Restore scroll position for this file
       editorRef.current.scrollTop = fileData.scrollPosition || 0;
     }
-    // Snapshot starting words
     startWordCountRef.current = countWords(contentToLoad);
     wordCountRef.current = startWordCountRef.current;
     sessionStartRef.current = Date.now();
-  }, [fileData, activeTab]);
+  }, [fileId, activeTab]);
 
-  // ── Reset formatting state when switching files ──────────────────────────
+  // ── Reset formatting when switching files ─────────────────────────────────
 
   useEffect(() => {
-    // Reset all formatting to match the current file's settings
     setFont(fileData.font || DEFAULT_FORMATTING.font);
     setFontSize(fileData.fontSize || DEFAULT_FORMATTING.fontSize);
     setTextColor(fileData.textColor || DEFAULT_FORMATTING.textColor);
     setBgColor(fileData.bgColor || DEFAULT_FORMATTING.bgColor);
     setCustomColor(fileData.customColor || DEFAULT_FORMATTING.customColor);
     setCustomBg(fileData.customBg || DEFAULT_FORMATTING.customBg);
-
-    // Reset session counters
     setEdits(0);
     setPastes(0);
     setPauses(0);
@@ -308,7 +331,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
 
   useEffect(() => {
     intervalRef.current = setInterval(() => {
-      const elapsed = (Date.now() - sessionStartRef.current) / 1000 / 60; // minutes
+      const elapsed = (Date.now() - sessionStartRef.current) / 1000 / 60;
       const currentWords = countWords(editorRef.current?.innerHTML || "");
       const wordsTyped = Math.max(0, currentWords - startWordCountRef.current);
       setWpm(elapsed > 0 ? Math.round(wordsTyped / elapsed) : 0);
@@ -318,77 +341,9 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
     };
   }, []);
 
-  // ── Keystroke handler ─────────────────────────────────────────────────────
-
-  const handleKeyDown = useCallback(() => {
-    setEdits((e) => e + 1);
-
-    // Pause detection: if gap since last keystroke > threshold, count a pause
-    const now = Date.now();
-    if (now - lastKeystrokeRef.current > PAUSE_THRESHOLD_MS) {
-      setPauses((p) => p + 1);
-    }
-    lastKeystrokeRef.current = now;
-
-    // Reset pause timer
-    if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
-    pauseTimerRef.current = setTimeout(() => {
-      // After threshold, next keystroke will count as resuming from pause
-      lastKeystrokeRef.current = 0;
-    }, PAUSE_THRESHOLD_MS);
-  }, []);
-
-  // ── Paste handler ─────────────────────────────────────────────────────────
-
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const text = e.clipboardData.getData("text/plain");
-    document.execCommand("insertText", false, text);
-    setPastes((p) => p + 1);
-    setPasteDetected(true);
-    setTimeout(() => setPasteDetected(false), 2000);
-  }, []);
-
-  // ── Save formatting state to file data ─────────────────────────────────────
-
-  useEffect(() => {
-    const files = loadFiles();
-    if (files[fileId]) {
-      files[fileId].font = font;
-      files[fileId].fontSize = fontSize;
-      files[fileId].textColor = textColor;
-      files[fileId].bgColor = bgColor;
-      files[fileId].customColor = customColor;
-      files[fileId].customBg = customBg;
-      saveFiles(files);
-    }
-  }, [font, fontSize, textColor, bgColor, customColor, customBg, fileId]);
-
-  // ── Save scroll position to file data ──────────────────────────────────────
-
-  useEffect(() => {
-    const handleScroll = () => {
-      if (editorRef.current) {
-        const files = loadFiles();
-        if (files[fileId]) {
-          files[fileId].scrollPosition = editorRef.current.scrollTop;
-          saveFiles(files);
-        }
-      }
-    };
-
-    const editor = editorRef.current;
-    if (editor) {
-      editor.addEventListener("scroll", handleScroll);
-      return () => {
-        editor.removeEventListener("scroll", handleScroll);
-      };
-    }
-  }, [fileId]);
-
-  // ── Save session ──────────────────────────────────────────────────────────
-
   const handleSaveSession = useCallback(async () => {
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     const content = editorRef.current?.innerHTML || "";
     const words = countWords(content);
     const chars = countChars(content);
@@ -410,13 +365,11 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
       content,
     };
 
-    // Update localStorage
     const updated: FileData = {
       ...fileData,
       content,
       sessions: [...(fileData.sessions || []), session],
       lastModified: Date.now(),
-      // Preserve formatting state
       font,
       fontSize,
       textColor,
@@ -430,8 +383,8 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
     files[fileId] = updated;
     saveFiles(files);
     setFileData(updated);
+    clearDraft(fileId);
 
-    // Also save content to database
     try {
       await api.patch(`/api/documents/${fileId}/content`, { content });
     } catch (error) {
@@ -440,10 +393,10 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
         message: "Failed to save session to database",
         type: "error",
       });
+      isSavingRef.current = false;
       return;
     }
 
-    // Reset session counters
     setEdits(0);
     setPastes(0);
     setPauses(0);
@@ -454,6 +407,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
       message: "Session saved successfully!",
       type: "success",
     });
+    isSavingRef.current = false;
   }, [
     fileData,
     fileId,
@@ -468,22 +422,128 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
     customBg,
   ]);
 
-  // ── Ctrl+S save session handler ────────────────────────────────────────────
+  // ── Ctrl+S now triggers FULL session save ───────
 
   useEffect(() => {
-    const handleKeyboardShortcut = (e: KeyboardEvent) => {
-      // Ctrl+S (or Cmd+S on Mac)
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        void handleSaveSession();
-      }
+    const handleCtrlS = async (e: KeyboardEvent) => {
+      if (!((e.ctrlKey || e.metaKey) && e.key === "s")) return;
+      e.preventDefault();
+
+      await handleSaveSession();
     };
 
-    window.addEventListener("keydown", handleKeyboardShortcut);
+    window.addEventListener("keydown", handleCtrlS);
+    return () => window.removeEventListener("keydown", handleCtrlS);
+  }, [fileId, handleSaveSession]);
+
+  // ── Auto-save on tab close / refresh ───────
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const content = editorRef.current?.innerHTML || "";
+      if (!content.trim()) return;
+
+      // Save draft instantly (guaranteed)
+      saveDraft(fileId, content);
+
+      // Try saving session (best effort)
+      handleSaveSession();
+
+      e.preventDefault();
+      e.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     return () => {
-      window.removeEventListener("keydown", handleKeyboardShortcut);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [fileId, handleSaveSession]);
+
+  // ── Auto-save on auth failure (JWT expiry) ───────
+
+  useEffect(() => {
+    const handleAutoSave = () => {
+      handleSaveSession();
+    };
+
+    window.addEventListener("auto-save-session", handleAutoSave);
+
+    return () => {
+      window.removeEventListener("auto-save-session", handleAutoSave);
     };
   }, [handleSaveSession]);
+
+  // ── Keystroke handler — draft save + pause detection only ─────────────────
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      // Ctrl+S is handled by the window listener above
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") return;
+
+      const content = editorRef.current?.innerHTML || "";
+      saveDraft(fileId, content);
+
+      setEdits((prev) => prev + 1);
+
+      const now = Date.now();
+      if (now - lastKeystrokeRef.current > PAUSE_THRESHOLD_MS) {
+        setPauses((p) => p + 1);
+      }
+      lastKeystrokeRef.current = now;
+
+      if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
+      pauseTimerRef.current = setTimeout(() => {
+        lastKeystrokeRef.current = 0;
+      }, PAUSE_THRESHOLD_MS);
+    },
+    [fileId],
+  );
+
+  // ── Paste handler ─────────────────────────────────────────────────────────
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    document.execCommand("insertText", false, text);
+    setPastes((p) => p + 1);
+    setPasteDetected(true);
+    setTimeout(() => setPasteDetected(false), 2000);
+  }, []);
+
+  // ── Save formatting to localStorage ──────────────────────────────────────
+
+  useEffect(() => {
+    const files = loadFiles();
+    if (files[fileId]) {
+      files[fileId].font = font;
+      files[fileId].fontSize = fontSize;
+      files[fileId].textColor = textColor;
+      files[fileId].bgColor = bgColor;
+      files[fileId].customColor = customColor;
+      files[fileId].customBg = customBg;
+      saveFiles(files);
+    }
+  }, [font, fontSize, textColor, bgColor, customColor, customBg, fileId]);
+
+  // ── Save scroll position ──────────────────────────────────────────────────
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (editorRef.current) {
+        const files = loadFiles();
+        if (files[fileId]) {
+          files[fileId].scrollPosition = editorRef.current.scrollTop;
+          saveFiles(files);
+        }
+      }
+    };
+    const editor = editorRef.current;
+    if (editor) {
+      editor.addEventListener("scroll", handleScroll);
+      return () => editor.removeEventListener("scroll", handleScroll);
+    }
+  }, [fileId]);
 
   // ── Toolbar commands ───────────────────────────────────────────────────────
 
@@ -499,18 +559,13 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
 
   const applySize = (s: number) => {
     setFontSize(s);
-    // execCommand fontSize uses 1-7, we map px via a workaround
     exec("fontSize", "7");
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
-      const container = editorRef.current;
-      if (container) {
-        const fontEls = container.querySelectorAll('font[size="7"]');
-        fontEls.forEach((el) => {
-          (el as HTMLElement).removeAttribute("size");
-          (el as HTMLElement).style.fontSize = `${s}px`;
-        });
-      }
+    const container = editorRef.current;
+    if (container) {
+      container.querySelectorAll('font[size="7"]').forEach((el) => {
+        (el as HTMLElement).removeAttribute("size");
+        (el as HTMLElement).style.fontSize = `${s}px`;
+      });
     }
   };
 
@@ -518,15 +573,11 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
     setTextColor(c);
     exec("foreColor", c);
   };
-
   const applyBgColor = (c: string) => {
     setBgColor(c);
     exec("hiliteColor", c);
   };
-
-  const applyHeading = (tag: string) => {
-    exec("formatBlock", `<${tag}>`);
-  };
+  const applyHeading = (tag: string) => exec("formatBlock", `<${tag}>`);
 
   // ── Live stats ─────────────────────────────────────────────────────────────
 
@@ -535,8 +586,6 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
   const chars = countChars(currentContent);
   const fontClass = FONT_CLASS_MAP[font] || styles.fontCalibri;
   const fontSizeClass = FONT_SIZE_CLASS_MAP[fontSize] || styles.fontSize14;
-
-  // ── Overview ───────────────────────────────────────────────────────────────
 
   const totalWords = fileData.sessions.length
     ? fileData.sessions[fileData.sessions.length - 1].words
@@ -554,14 +603,8 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
 
   return (
     <>
-      <div
-        className={styles.root}
-        style={{
-          width: "min(85vw, calc(100vw - 2rem))",
-          margin: "0 auto",
-        }}
-      >
-        {/* ── Top Navigation ── */}
+      <div className={`${styles.root} ${styles.editorRoot}`}>
+        {/* Top Navigation */}
         <div className={styles.nav}>
           <div className={styles.navTabs}>
             {(["overview", "sessions", "write"] as const).map((tab) => (
@@ -583,26 +626,25 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
 
         <div className={styles.divider} />
 
-        {/* ── Write Tab ── */}
+        {/* Write Tab */}
         {activeTab === "write" && (
           <div className={styles.writeContainer}>
             {/* Status Badges */}
             <div className={styles.badges}>
               <Badge color="#4ade80" label="Keystroke capture active" />
               <Badge
-                color={pasteDetected ? "#f59e0b" : "#f59e0b"}
+                color="#f59e0b"
                 label={pasteDetected ? "Paste detected!" : "Paste detection on"}
                 pulse={pasteDetected}
               />
-              <Badge color="#4ade80" label={`WPM:  ${wpm}`} />
-              <Badge color="#4ade80" label={`Pauses:  ${pauses}`} />
+              <Badge color="#4ade80" label={`WPM: ${wpm}`} />
+              <Badge color="#4ade80" label={`Pauses: ${pauses}`} />
             </div>
 
             {/* Editor Card */}
             <div className={styles.editorCard}>
               {/* Toolbar Row 1 */}
               <div className={styles.toolbar}>
-                {/* Font selector */}
                 <select
                   className={styles.select}
                   aria-label="Font family"
@@ -617,7 +659,6 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
                   ))}
                 </select>
 
-                {/* Font size */}
                 <select
                   className={`${styles.select} ${styles.selectSmall}`}
                   aria-label="Font size"
@@ -633,8 +674,6 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
                 </select>
 
                 <div className={styles.toolbarSep} />
-
-                {/* Format buttons */}
                 <ToolBtn
                   label="B"
                   bold
@@ -659,10 +698,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
                   onClick={() => exec("strikeThrough")}
                   title="Strikethrough"
                 />
-
                 <div className={styles.toolbarSep} />
-
-                {/* Headings */}
                 <ToolBtn
                   label="H1"
                   onClick={() => applyHeading("h1")}
@@ -683,10 +719,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
                   onClick={() => applyHeading("p")}
                   title="Paragraph"
                 />
-
                 <div className={styles.toolbarSep} />
-
-                {/* Align */}
                 <ToolBtn
                   label="≡"
                   onClick={() => exec("justifyLeft")}
@@ -710,9 +743,8 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
                 />
               </div>
 
-              {/* Toolbar Row 2 — colors */}
+              {/* Toolbar Row 2 */}
               <div className={`${styles.toolbar} ${styles.toolbarCompact}`}>
-                {/* Text color */}
                 <div className={styles.colorGroup}>
                   <div
                     className={`${styles.colorSwatch} ${styles.colorSwatchWhite}`}
@@ -728,7 +760,6 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
 
                 <div className={styles.toolbarSep} />
 
-                {/* Custom colors */}
                 <label
                   className={styles.colorPickerWrap}
                   title="Custom text color"
@@ -764,8 +795,6 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
                 </label>
 
                 <div className={styles.toolbarSep} />
-
-                {/* List / indent */}
                 <ToolBtn
                   label="• —"
                   onClick={() => exec("insertUnorderedList")}
@@ -809,15 +838,23 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
                   <StatItem label="Edits:" value={edits} tone="accent" />
                   <StatItem label="Pastes:" value={pastes} tone="muted" />
                 </div>
-                <button className={styles.saveBtn} onClick={handleSaveSession}>
-                  Save session
-                </button>
+                <div className={styles.footerActions}>
+                  <span className={styles.footerHint}>
+                    Ctrl+S to save quietly
+                  </span>
+                  <button
+                    className={styles.saveBtn}
+                    onClick={handleSaveSession}
+                  >
+                    Save session
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ── Sessions Tab ── */}
+        {/* Sessions Tab */}
         {activeTab === "sessions" && (
           <div className={styles.tabContent}>
             <h2 className={styles.sectionTitle}>
@@ -858,7 +895,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
           </div>
         )}
 
-        {/* ── Overview Tab ── */}
+        {/* Overview Tab */}
         {activeTab === "overview" && (
           <div className={styles.tabContent}>
             <h2 className={styles.sectionTitle}>Overview — {fileData.name}</h2>
@@ -894,6 +931,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
           </div>
         )}
       </div>
+
       {toastMessage && (
         <Toast
           message={toastMessage.message}
@@ -918,7 +956,6 @@ function Badge({
 }) {
   const dotToneClass = color === "#f59e0b" ? styles.dotAmber : styles.dotGreen;
   const pulseClass = pulse ? styles.dotPulse : "";
-
   return (
     <div className={styles.badge}>
       <span className={`${styles.dot} ${dotToneClass} ${pulseClass}`} />
@@ -975,7 +1012,6 @@ function StatItem({
 }) {
   const toneClass =
     tone === "accent" ? styles.statItemAccent : styles.statItemMuted;
-
   return (
     <span className={`${styles.statItem} ${toneClass}`}>
       {label} <strong className={styles.statItemValue}>{value}</strong>
@@ -1035,7 +1071,6 @@ function WpmChart({ sessions }: { sessions: Session[] }) {
       {sessions.map((s, i) => {
         const barHeight = Math.max(4, Math.round((s.wpm / max) * 100));
         const y = 100 - barHeight;
-
         return (
           <div key={s.id} className={styles.chartBarWrap}>
             <svg
@@ -1062,14 +1097,13 @@ function WpmChart({ sessions }: { sessions: Session[] }) {
   );
 }
 
-// ── Wrapper component that reads query parameters ──────────────────────────
+// ── Wrapper ───────────────────────────────────────────────────────────────────
 
 export default function FileOpen() {
   const [searchParams] = useSearchParams();
   const fileId = searchParams.get("fileId");
   const fileName = searchParams.get("fileName");
 
-  // If fileId or fileName are not provided, show an error
   if (!fileId || !fileName) {
     return (
       <div className={styles.root}>

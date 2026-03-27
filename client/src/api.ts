@@ -68,7 +68,7 @@ export const getAccessToken = () => accessToken;
 
 export const clearAuthSession = () => {
   setAccessToken(null);
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     window.sessionStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
   }
 };
@@ -120,14 +120,21 @@ api.interceptors.response.use(
 
       return api(originalRequest);
     } catch (refreshError) {
-      console.error('[Auth] Token refresh failed, clearing session');
-      setAccessToken(null);
-      
-      // Redirect to login if we're in a browser context
-      if (typeof window !== 'undefined' && !requestUrl.includes('/api/auth/')) {
-        window.location.href = '/login';
+      console.error("[Auth] Token refresh failed, clearing session");
+
+      // 🔥 Trigger auto-save BEFORE logout
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("auto-save-session"));
       }
-      
+
+      setAccessToken(null);
+
+      if (typeof window !== "undefined" && !requestUrl.includes("/api/auth/")) {
+        setTimeout(() => {
+          window.location.href = "/login";
+        }, 500);
+      }
+
       return Promise.reject(refreshError);
     }
   },

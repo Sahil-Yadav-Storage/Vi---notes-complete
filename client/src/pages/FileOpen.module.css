@@ -9,6 +9,11 @@
   flex-direction: column;
 }
 
+.editorRoot {
+  width: min(85vw, calc(100vw - 2rem));
+  margin: 0 auto;
+}
+
 /* ── Navigation ──────────────────────────────────────────────────────────── */
 
 .nav {
@@ -514,6 +519,17 @@
   display: flex;
   gap: 20px;
   align-items: center;
+}
+
+.footerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.footerHint {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .statItem {
