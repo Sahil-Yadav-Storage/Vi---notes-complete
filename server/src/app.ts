@@ -10,7 +10,10 @@ import analyticsRoutes from "./routes/analytics.js";
 const app = express();
 
 const isAllowedDevOrigin = (origin: string) => {
-  return /^http:\/\/(localhost|127\.0\.0\.1):517\d$/.test(origin);
+  return (
+    /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0):\d+$/.test(origin) ||
+    /^https:\/\/[a-z0-9-]+\.devtunnels\.ms$/.test(origin)
+  );
 };
 
 app.use(
