@@ -1,4 +1,33 @@
+// Strict normalizer: only real strings, arrays of strings, or arrays with anomalyFlags; all else collapses to []
+const toStringArray = (value: unknown): string[] => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    // Handles accidental JSON-stringified arrays/objects
+    try {
+      return toStringArray(JSON.parse(trimmed));
+    } catch {
+      return [trimmed];
+    }
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (typeof item === "string") {
+        const trimmed = item.trim();
+        return trimmed ? [trimmed] : [];
+      }
+      if (item && typeof item === "object" && "anomalyFlags" in item) {
+        return toStringArray((item as { anomalyFlags?: unknown }).anomalyFlags);
+      }
+      return [];
+    });
+  }
+  return [];
+};
 import type { Keystroke, SessionAnalytics } from "@shared/index";
+import { analyzeText } from "./textAnalysisService.js";
+import { calculateAuthenticityScore } from "./scoringService.js";
+import { detectAnomalies } from "./anomalyService.js";
 
 const CHARS_PER_WORD = 5;
 const WPM_WINDOW_MS = 60_000;
@@ -61,8 +90,11 @@ const getSortedEvents = (keystrokes: Keystroke[]) =>
 
 export const computeSessionAnalytics = (
   keystrokes: Keystroke[],
+  documentContent: string = "",
 ): SessionAnalytics => {
-  if (!Array.isArray(keystrokes) || keystrokes.length === 0) {
+  const safeKeystrokes = Array.isArray(keystrokes) ? keystrokes : [];
+
+  if (safeKeystrokes.length === 0) {
     return {
       version: ANALYTICS_VERSION,
       approximateWpmVariance: 0,
@@ -75,10 +107,23 @@ export const computeSessionAnalytics = (
       totalPastedChars: 0,
       pauseCount: 0,
       durationMs: 0,
+      microPauseCount: 0,
+      textAnalysis: {
+        avgSentenceLength: 0,
+        sentenceVariance: 0,
+        lexicalDiversity: 0,
+        totalWords: 0,
+        totalSentences: 0,
+      },
+      authenticity: {
+        score: 0,
+        label: "unknown",
+      },
+      flags: [],
     };
   }
 
-  const orderedEvents = getSortedEvents(keystrokes);
+  const orderedEvents = getSortedEvents(safeKeystrokes);
   const firstEvent = orderedEvents[0];
   const lastEvent = orderedEvents[orderedEvents.length - 1];
   const firstTimestamp = firstEvent
@@ -126,12 +171,8 @@ export const computeSessionAnalytics = (
 
   let pauseCount = 0;
   for (let index = 1; index < orderedEvents.length; index += 1) {
-    const currentEvent = orderedEvents[index];
-    const previousEvent = orderedEvents[index - 1];
-
-    if (!currentEvent || !previousEvent) {
-      continue;
-    }
+    const currentEvent = orderedEvents[index]!;
+    const previousEvent = orderedEvents[index - 1]!;
 
     const currentTimestamp = getPreferredTimestamp(currentEvent);
     const previousTimestamp = getPreferredTimestamp(previousEvent);
@@ -155,7 +196,7 @@ export const computeSessionAnalytics = (
   const pauseFrequency =
     durationMs > 0 ? pauseCount / (durationMs / WPM_WINDOW_MS) : 0;
 
-  return {
+  const baseAnalytics = {
     version: ANALYTICS_VERSION,
     approximateWpmVariance: roundTo(getVariance(wpmBuckets), 4),
     pauseFrequency: roundTo(pauseFrequency, 4),
@@ -167,5 +208,61 @@ export const computeSessionAnalytics = (
     totalPastedChars,
     pauseCount,
     durationMs,
+  };
+
+  // Strict normalization: never trust analyzeText() output shape
+  const rawTextStats = analyzeText(documentContent) as unknown as Record<
+    string,
+    number
+  >;
+  const textAnalysis = {
+    avgSentenceLength: rawTextStats.avgSentenceLength ?? 0,
+    sentenceVariance:
+      rawTextStats.sentenceVariance ?? rawTextStats.sentenceLengthVariance ?? 0,
+    lexicalDiversity:
+      rawTextStats.lexicalDiversity ?? rawTextStats.vocabularyDiversity ?? 0,
+    totalWords: rawTextStats.totalWords ?? rawTextStats.wordCount ?? 0,
+    totalSentences:
+      rawTextStats.totalSentences ?? rawTextStats.sentenceCount ?? 0,
+  };
+
+  // Only pass behavioral metrics, not full analytics
+  const behavioralMetrics = {
+    approximateWpmVariance: baseAnalytics.approximateWpmVariance,
+    pauseFrequency: baseAnalytics.pauseFrequency,
+    editRatio: baseAnalytics.editRatio,
+    pasteRatio: baseAnalytics.pasteRatio,
+  };
+  // calculateAuthenticityScore must return { score, label }
+  const authenticity = calculateAuthenticityScore(
+    behavioralMetrics,
+    textAnalysis,
+  );
+
+  const anomalyReport = detectAnomalies(safeKeystrokes);
+  // Always normalize flags before returning
+  const flags = Array.isArray(anomalyReport?.anomalyFlags)
+    ? anomalyReport.anomalyFlags.filter(
+        (f) => typeof f === "string" && f.trim().length > 0,
+      )
+    : [];
+
+  // STEP 9: Add micro-pause counting
+  let microPauseCount = 0;
+  for (let i = 1; i < orderedEvents.length; i++) {
+    const gap =
+      (getPreferredTimestamp(orderedEvents[i]!) ?? 0) -
+      (getPreferredTimestamp(orderedEvents[i - 1]!) ?? 0);
+    if (gap > 300 && gap < 2000) {
+      microPauseCount++;
+    }
+  }
+
+  return {
+    ...baseAnalytics,
+    textAnalysis,
+    authenticity,
+    flags,
+    microPauseCount,
   };
 };

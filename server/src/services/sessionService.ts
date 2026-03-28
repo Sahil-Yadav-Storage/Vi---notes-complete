@@ -48,8 +48,8 @@ type SessionWithLifecycle = {
   documentId?: Types.ObjectId;
   status?: "active" | "closed";
   closedAt?: Date;
-  analytics?: CloseSessionResponse["analytics"];
-  keystrokes: SessionUpsertInput["keystrokes"];
+  analytics?: import("@shared/session").SessionAnalytics;
+  keystrokes: import("@shared/keystroke").Keystroke[];
   save: () => Promise<unknown>;
 };
 
@@ -508,12 +508,22 @@ export const closeSession = async (
     };
   }
 
-  const analytics = computeSessionAnalytics(session.keystrokes);
+  const document = await Document.findById(session.documentId);
+  const content = document?.content || "";
+
+  const analytics = computeSessionAnalytics(session.keystrokes, content);
   const closedAt = session.closedAt ?? new Date();
 
   session.status = "closed";
   session.closedAt = closedAt;
-  session.analytics = analytics;
+  session.analytics = {
+    ...analytics,
+    flags: Array.isArray(analytics.flags)
+      ? analytics.flags.filter(
+          (flag) => typeof flag === "string" && flag.trim().length > 0,
+        )
+      : [],
+  };
   await session.save();
 
   return {
@@ -546,15 +556,20 @@ export const listSessions = async (
     .select("-__v");
 
   // Transform raw sessions to SessionListItem format with computed stats
-  return sessions.map((session: any) => ({
-    _id: session._id.toString(),
-    documentId: session.documentId ? session.documentId.toString() : undefined,
-    status: session.status,
-    createdAt: session.createdAt.getTime(),
-    closedAt: session.closedAt ? session.closedAt.getTime() : undefined,
-    stats: computeDerivedStats(session.keystrokes || []),
-    analytics: session.analytics,
-  }));
+  return sessions.map((session: any) => {
+    const stats = computeDerivedStats(session.keystrokes || []);
+    return {
+      _id: session._id.toString(),
+      documentId: session.documentId
+        ? session.documentId.toString()
+        : undefined,
+      status: session.status,
+      createdAt: session.createdAt.toISOString(),
+      closedAt: session.closedAt ? session.closedAt.toISOString() : undefined,
+      stats,
+      analytics: session.analytics ?? null,
+    };
+  });
 };
 
 export const getSessionById = async (

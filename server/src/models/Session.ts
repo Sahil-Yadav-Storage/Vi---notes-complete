@@ -33,6 +33,22 @@ const SessionAnalyticsSchema = new mongoose.Schema(
     totalPastedChars: { type: Number, required: true },
     pauseCount: { type: Number, required: true },
     durationMs: { type: Number, required: true },
+    microPauseCount: Number,
+    textAnalysis: {
+      avgSentenceLength: Number,
+      sentenceVariance: Number,
+      lexicalDiversity: Number,
+      totalWords: Number,
+      totalSentences: Number,
+    },
+    authenticity: {
+      score: Number,
+      label: String,
+    },
+    flags: {
+      type: [String],
+      default: [],
+    },
   },
   { _id: false },
 );

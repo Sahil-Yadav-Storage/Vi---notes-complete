@@ -1,3 +1,15 @@
+export interface SessionTextAnalysis {
+  avgSentenceLength: number;
+  sentenceVariance: number;
+  lexicalDiversity: number;
+  totalWords: number;
+  totalSentences: number;
+}
+
+export interface SessionAuthenticity {
+  score: number;
+  label: string;
+}
 import type { Keystroke } from "./keystroke";
 
 export interface CreateSessionInput {
@@ -34,6 +46,10 @@ export interface SessionAnalytics {
   totalPastedChars: number;
   pauseCount: number;
   durationMs: number;
+  microPauseCount: number;
+  textAnalysis: SessionTextAnalysis;
+  authenticity: SessionAuthenticity;
+  flags: string[];
 }
 
 export interface SessionDerivedStats {
@@ -44,6 +60,8 @@ export interface SessionDerivedStats {
   pastes: number;
 }
 
+// Only stats and analytics are returned. Remove flat fields (words, chars, edits, pastes) for clean contract.
+// If backward compatibility is needed, add them back temporarily, but plan to remove.
 export interface SessionListItem {
   _id: string;
   documentId?: string;
