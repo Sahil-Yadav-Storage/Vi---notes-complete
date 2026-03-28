@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import Toast from "../components/Toast";
 import styles from "./FileOpen.module.css";
@@ -7,16 +7,28 @@ import styles from "./FileOpen.module.css";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface Session {
+  _id?: string;
   id: string;
   timestamp: number;
+  createdAt?: string;
   words: number;
   chars: number;
   edits: number;
   pastes: number;
   wpm: number;
   pauses: number;
-  duration: number;
+  duration: number | string;
   content: string;
+  analytics?: {
+    authenticity?: {
+      score: number;
+      label: string;
+    };
+    flags?: {
+      type: string;
+      message: string;
+    }[];
+  };
 }
 
 interface FileData {
@@ -184,7 +196,13 @@ const FONT_SIZE_CLASS_MAP: Record<number, string> = {
 
 const PAUSE_THRESHOLD_MS = 3000;
 
+const SESSION_ID_RE = /^[a-f\d]{24}$/i;
+
+const isMongoObjectId = (value: unknown): value is string =>
+  typeof value === "string" && SESSION_ID_RE.test(value);
+
 function Editor({ fileId, fileName, onClose }: EditorProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"overview" | "sessions" | "write">(
     "write",
   );
@@ -195,9 +213,16 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
     message: string;
     type: "success" | "error";
   } | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(() => {
+    const stored = localStorage.getItem(`sessionId_${fileId}`);
+    return isMongoObjectId(stored) ? stored : null;
+  });
 
   const editorRef = useRef<HTMLDivElement>(null);
   const isSavingRef = useRef(false);
+  const pendingKeystrokesRef = useRef<any[]>([]);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousContentRef = useRef<string>("");
   const [font, setFont] = useState(DEFAULT_FORMATTING.font);
   const [fontSize, setFontSize] = useState(DEFAULT_FORMATTING.fontSize);
   const [textColor, setTextColor] = useState(DEFAULT_FORMATTING.textColor);
@@ -212,6 +237,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
   const [edits, setEdits] = useState(0);
   const [pastes, setPastes] = useState(0);
   const [pasteDetected, setPasteDetected] = useState(false);
+  const [sessionAnalytics, setSessionAnalytics] = useState<any>(null);
 
   const sessionStartRef = useRef<number>(Date.now());
   const lastKeystrokeRef = useRef<number>(Date.now());
@@ -274,22 +300,57 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
             customBg: DEFAULT_FORMATTING.customBg,
             scrollPosition: DEFAULT_FORMATTING.scrollPosition,
           };
-          saveFiles(files);
-          setFileData(files[fileId]);
         } else {
           files[fileId] = migrationFileData(files[fileId]);
           files[fileId].name = dbDocument.name;
-          saveFiles(files);
-          setFileData(files[fileId]);
         }
+
+        saveFiles(files);
+        setFileData(files[fileId]);
       } catch (error) {
         console.error("Failed to fetch document from database:", error);
         setFileData(getFileData(fileId, fileName));
       }
     };
 
+    const createSession = async () => {
+      const storageKey = `sessionId_${fileId}`;
+      const stored = localStorage.getItem(storageKey);
+
+      if (stored && !isMongoObjectId(stored)) {
+        localStorage.removeItem(storageKey);
+      }
+
+      if (isMongoObjectId(stored)) {
+        setSessionId(stored);
+        return;
+      }
+
+      try {
+        const res = await api.post("/api/sessions", {
+          documentId: fileId,
+          keystrokes: [],
+        });
+
+        const id = String(res.data.sessionId);
+        if (!isMongoObjectId(id)) {
+          throw new Error("Invalid session id");
+        }
+
+        localStorage.setItem(storageKey, id);
+        setSessionId(id);
+      } catch (err) {
+        console.error("Session creation failed", err);
+        setToastMessage({
+          message: "Could not start a writing session.",
+          type: "error",
+        });
+      }
+    };
+
     void fetchAndInitDocument();
-  }, [fileId]);
+    void createSession();
+  }, [fileId, fileName]);
 
   // ── Init editor content — prefer draft over saved content ─────────────────
 
@@ -307,10 +368,12 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
       editorRef.current.innerHTML = contentToLoad;
       editorRef.current.scrollTop = fileData.scrollPosition || 0;
     }
+
+    previousContentRef.current = contentToLoad;
     startWordCountRef.current = countWords(contentToLoad);
     wordCountRef.current = startWordCountRef.current;
     sessionStartRef.current = Date.now();
-  }, [fileId, activeTab]);
+  }, [fileId, activeTab, fileData]);
 
   // ── Reset formatting when switching files ─────────────────────────────────
 
@@ -341,85 +404,170 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
     };
   }, []);
 
+  const getChangeBounds = (before: string, after: string) => {
+    const maxPrefix = Math.min(before.length, after.length);
+    let prefix = 0;
+
+    while (prefix < maxPrefix && before[prefix] === after[prefix]) {
+      prefix += 1;
+    }
+
+    const maxSuffix = Math.min(before.length - prefix, after.length - prefix);
+    let suffix = 0;
+
+    while (
+      suffix < maxSuffix &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+    ) {
+      suffix += 1;
+    }
+
+    const removedLength = before.length - prefix - suffix;
+    const insertedLength = after.length - prefix - suffix;
+
+    return {
+      start: prefix,
+      end: prefix + removedLength,
+      insertedLength,
+      removedLength,
+    };
+  };
+
+  const flushKeystrokes = useCallback(async () => {
+    if (!sessionId || pendingKeystrokesRef.current.length === 0) return;
+
+    const batch = pendingKeystrokesRef.current.splice(
+      0,
+      pendingKeystrokesRef.current.length,
+    );
+
+    await api.patch(`/api/sessions/${sessionId}`, {
+      keystrokes: batch,
+    });
+  }, [sessionId]);
+
+  const queueKeystrokes = useCallback(
+    (events: any[]) => {
+      pendingKeystrokesRef.current.push(...events);
+
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+
+      syncTimerRef.current = setTimeout(() => {
+        void flushKeystrokes();
+      }, 500);
+    },
+    [flushKeystrokes],
+  );
+
   const handleSaveSession = useCallback(async () => {
     if (isSavingRef.current) return;
     isSavingRef.current = true;
-    const content = editorRef.current?.innerHTML || "";
-    const words = countWords(content);
-    const chars = countChars(content);
-    const elapsed = (Date.now() - sessionStartRef.current) / 1000;
-    const elapsedMin = elapsed / 60;
-    const wordsTyped = Math.max(0, words - startWordCountRef.current);
-    const finalWpm = elapsedMin > 0 ? Math.round(wordsTyped / elapsedMin) : 0;
-
-    const session: Session = {
-      id: `${Date.now()}`,
-      timestamp: Date.now(),
-      words,
-      chars,
-      edits,
-      pastes,
-      wpm: finalWpm,
-      pauses,
-      duration: Math.round(elapsed),
-      content,
-    };
-
-    const updated: FileData = {
-      ...fileData,
-      content,
-      sessions: [...(fileData.sessions || []), session],
-      lastModified: Date.now(),
-      font,
-      fontSize,
-      textColor,
-      bgColor,
-      customColor,
-      customBg,
-      scrollPosition: editorRef.current?.scrollTop || 0,
-    };
-
-    const files = loadFiles();
-    files[fileId] = updated;
-    saveFiles(files);
-    setFileData(updated);
-    clearDraft(fileId);
 
     try {
+      await flushKeystrokes();
+
+      const content = editorRef.current?.innerHTML || "";
+      const words = countWords(content);
+      const chars = countChars(content);
+      const elapsed = (Date.now() - sessionStartRef.current) / 1000;
+      const elapsedMin = elapsed / 60;
+      const wordsTyped = Math.max(0, words - startWordCountRef.current);
+      const finalWpm = elapsedMin > 0 ? Math.round(wordsTyped / elapsedMin) : 0;
+
       await api.patch(`/api/documents/${fileId}/content`, { content });
-    } catch (error) {
-      console.error("Failed to save content to database:", error);
+
+      if (!sessionId) {
+        throw new Error("Missing session id");
+      }
+
+      const closeRes = await api.post(`/api/sessions/${sessionId}/close`);
+      const analytics = closeRes.data.analytics ?? null;
+      setSessionAnalytics(analytics);
+
+      const session: Session = {
+        _id: sessionId,
+        id: sessionId,
+        timestamp: Date.now(),
+        createdAt: new Date().toISOString(),
+        words,
+        chars,
+        edits,
+        pastes,
+        wpm: finalWpm,
+        pauses,
+        duration: String(Math.round(elapsed)),
+        content,
+        analytics: analytics ?? undefined,
+      };
+
+      const updated: FileData = {
+        ...fileData,
+        content,
+        sessions: [...(fileData.sessions || []), session],
+        lastModified: Date.now(),
+        font,
+        fontSize,
+        textColor,
+        bgColor,
+        customColor,
+        customBg,
+        scrollPosition: editorRef.current?.scrollTop || 0,
+      };
+
+      const files = loadFiles();
+      files[fileId] = updated;
+      saveFiles(files);
+      setFileData(updated);
+      clearDraft(fileId);
+
+      localStorage.removeItem(`sessionId_${fileId}`);
+      setSessionId(null);
+
+      const nextSessionRes = await api.post("/api/sessions", {
+        documentId: fileId,
+        keystrokes: [],
+      });
+
+      const nextSessionId = String(nextSessionRes.data.sessionId);
+      if (isMongoObjectId(nextSessionId)) {
+        localStorage.setItem(`sessionId_${fileId}`, nextSessionId);
+        setSessionId(nextSessionId);
+      }
+
+      setEdits(0);
+      setPastes(0);
+      setPauses(0);
+      setWpm(0);
+      sessionStartRef.current = Date.now();
+      startWordCountRef.current = words;
+
       setToastMessage({
-        message: "Failed to save session to database",
+        message: "Session saved successfully!",
+        type: "success",
+      });
+    } catch (error) {
+      console.error("Failed to save session:", error);
+      setToastMessage({
+        message: "Failed to save session",
         type: "error",
       });
+    } finally {
       isSavingRef.current = false;
-      return;
     }
-
-    setEdits(0);
-    setPastes(0);
-    setPauses(0);
-    setWpm(0);
-    sessionStartRef.current = Date.now();
-    startWordCountRef.current = words;
-    setToastMessage({
-      message: "Session saved successfully!",
-      type: "success",
-    });
-    isSavingRef.current = false;
   }, [
+    edits,
     fileData,
     fileId,
-    edits,
-    pastes,
-    pauses,
     font,
     fontSize,
-    textColor,
+    flushKeystrokes,
     bgColor,
-    customColor,
     customBg,
+    customColor,
+    pauses,
+    pastes,
+    sessionId,
+    textColor,
   ]);
 
   // ── Ctrl+S now triggers FULL session save ───────
@@ -478,7 +626,6 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Ctrl+S is handled by the window listener above
       if ((e.ctrlKey || e.metaKey) && e.key === "s") return;
 
       const content = editorRef.current?.innerHTML || "";
@@ -492,24 +639,81 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
       }
       lastKeystrokeRef.current = now;
 
+      queueKeystrokes([{ action: "down", timestamp: now }]);
+
       if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
       pauseTimerRef.current = setTimeout(() => {
         lastKeystrokeRef.current = 0;
       }, PAUSE_THRESHOLD_MS);
     },
-    [fileId],
+    [fileId, queueKeystrokes],
+  );
+
+  const handleKeyUp = useCallback(
+    (e: React.KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") return;
+
+      const now = Date.now();
+      queueKeystrokes([{ action: "up", timestamp: now }]);
+    },
+    [queueKeystrokes],
   );
 
   // ── Paste handler ─────────────────────────────────────────────────────────
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const text = e.clipboardData.getData("text/plain");
-    document.execCommand("insertText", false, text);
-    setPastes((p) => p + 1);
-    setPasteDetected(true);
-    setTimeout(() => setPasteDetected(false), 2000);
-  }, []);
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      e.preventDefault();
+
+      const text = e.clipboardData.getData("text/plain");
+      const selectionStart = e.currentTarget.selectionStart ?? 0;
+      const selectionEnd = e.currentTarget.selectionEnd ?? 0;
+      const now = Date.now();
+
+      document.execCommand("insertText", false, text);
+
+      setPastes((p) => p + 1);
+      setPasteDetected(true);
+
+      queueKeystrokes([
+        {
+          action: "paste",
+          timestamp: now,
+          pasteLength: text.length,
+          pasteSelectionStart: selectionStart,
+          pasteSelectionEnd: selectionEnd,
+        },
+      ]);
+
+      setTimeout(() => setPasteDetected(false), 2000);
+    },
+    [queueKeystrokes],
+  );
+
+  const handleInput = useCallback(() => {
+    const current = editorRef.current?.innerHTML || "";
+    const previous = previousContentRef.current;
+
+    if (current !== previous) {
+      const change = getChangeBounds(previous, current);
+      const now = Date.now();
+
+      if (change.insertedLength !== 0 || change.removedLength !== 0) {
+        queueKeystrokes([
+          {
+            action: "edit",
+            timestamp: now,
+            editStart: change.start,
+            editEnd: change.end,
+            insertedLength: change.insertedLength,
+            removedLength: change.removedLength,
+          },
+        ]);
+      }
+
+      previousContentRef.current = current;
+    }
+  }, [queueKeystrokes]);
 
   // ── Save formatting to localStorage ──────────────────────────────────────
 
@@ -826,6 +1030,8 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
                 suppressContentEditableWarning
                 className={`${styles.editorArea} ${fontClass} ${fontSizeClass}`}
                 onKeyDown={handleKeyDown}
+                onKeyUp={handleKeyUp}
+                onInput={handleInput}
                 onPaste={handlePaste}
                 spellCheck
               />
@@ -860,36 +1066,95 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
             <h2 className={styles.sectionTitle}>
               Writing Sessions — {fileData.name}
             </h2>
+
             {fileData.sessions.length === 0 ? (
               <p className={styles.emptyMsg}>
                 No sessions saved yet. Write something and click "Save session".
               </p>
             ) : (
               <div className={styles.sessionList}>
-                {[...fileData.sessions].reverse().map((s, i) => (
-                  <div key={s.id} className={styles.sessionCard}>
-                    <div className={styles.sessionHeader}>
-                      <span className={styles.sessionNum}>
-                        Session #{fileData.sessions.length - i}
-                      </span>
-                      <span className={styles.sessionDate}>
-                        {new Date(s.timestamp).toLocaleString()}
-                      </span>
+                {[...fileData.sessions].reverse().map((session, index) => {
+                  const verificationSessionId = session._id || session.id;
+
+                  return (
+                    <div key={session._id || session.id} className={styles.sessionCard}>
+                      <div className={styles.sessionHeader}>
+                        <h3 className={styles.sessionNum}>
+                          Session #{fileData.sessions.length - index}
+                        </h3>
+                        <p className={styles.sessionDate}>
+                          {session.createdAt
+                            ? new Date(session.createdAt).toLocaleString()
+                            : new Date(session.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className={styles.sessionStats}>
+                        <div className={styles.sessionStat}>
+                          <p className={`${styles.sessionStatVal} ${styles.textDefault}`}>
+                            {session.words}
+                          </p>
+                          <span className={styles.sessionStatLabel}>WORDS</span>
+                        </div>
+
+                        <div className={styles.sessionStat}>
+                          <p className={`${styles.sessionStatVal} ${styles.textDefault}`}>
+                            {session.chars}
+                          </p>
+                          <span className={styles.sessionStatLabel}>CHARS</span>
+                        </div>
+
+                        <div className={styles.sessionStat}>
+                          <p className={`${styles.sessionStatVal} ${styles.textDefault}`}>
+                            {session.edits}
+                          </p>
+                          <span className={styles.sessionStatLabel}>EDITS</span>
+                        </div>
+
+                        <div className={styles.sessionStat}>
+                          <p className={`${styles.sessionStatVal} ${styles.textDefault}`}>
+                            {session.pastes}
+                          </p>
+                          <span className={styles.sessionStatLabel}>PASTES</span>
+                        </div>
+
+                        <div className={styles.sessionStat}>
+                          <p className={`${styles.sessionStatVal} ${styles.textAccent}`}>
+                            {session.wpm}
+                          </p>
+                          <span className={styles.sessionStatLabel}>WPM</span>
+                        </div>
+
+                        <div className={styles.sessionStat}>
+                          <p className={`${styles.sessionStatVal} ${styles.textDefault}`}>
+                            {typeof session.duration === "string"
+                              ? session.duration
+                              : `${Math.floor(session.duration / 60)}m ${session.duration % 60}s`}
+                          </p>
+                          <span className={styles.sessionStatLabel}>DURATION</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.sessionActions}>
+                        <button
+                          type="button"
+                          disabled={!isMongoObjectId(verificationSessionId)}
+                          onClick={() => {
+                            if (!isMongoObjectId(verificationSessionId)) return;
+                            navigate(`/verify/${verificationSessionId}`);
+                          }}
+                          className={
+                            isMongoObjectId(verificationSessionId)
+                              ? styles.analysisButton
+                              : `${styles.analysisButton} ${styles.analysisButtonDisabled}`
+                          }
+                        >
+                          📊 View Analysis
+                        </button>
+                      </div>
                     </div>
-                    <div className={styles.sessionStats}>
-                      <SessionStat label="Words" value={s.words} />
-                      <SessionStat label="Chars" value={s.chars} />
-                      <SessionStat label="Edits" value={s.edits} />
-                      <SessionStat label="Pastes" value={s.pastes} />
-                      <SessionStat label="WPM" value={s.wpm} accent />
-                      <SessionStat label="Pauses" value={s.pauses} />
-                      <SessionStat
-                        label="Duration"
-                        value={`${Math.round(s.duration / 60)}m ${s.duration % 60}s`}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -899,6 +1164,30 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
         {activeTab === "overview" && (
           <div className={styles.tabContent}>
             <h2 className={styles.sectionTitle}>Overview — {fileData.name}</h2>
+
+            {/* STEP 8: Display Authenticity Data */}
+            {sessionAnalytics?.authenticity && (
+              <div style={{ marginBottom: "2rem", padding: "1.5rem", backgroundColor: "rgba(255, 255, 255, 0.05)", borderRadius: "8px" }}>
+                <h2 style={{ fontSize: "1.5rem", marginBottom: "1rem", color: "#f59e0b" }}>Authenticity Score</h2>
+                <p style={{ fontSize: "2rem", fontWeight: "bold", margin: "0.5rem 0" }}>
+                  {sessionAnalytics.authenticity.score} / 100
+                </p>
+                <p style={{ fontSize: "1.25rem", color: "#4ade80", marginBottom: "1rem" }}>
+                  {sessionAnalytics.authenticity.label}
+                </p>
+
+                {sessionAnalytics.flags && sessionAnalytics.flags.length > 0 && (
+                  <div style={{ marginTop: "1rem" }}>
+                    {sessionAnalytics.flags.map((f: any, idx: number) => (
+                      <div key={idx} style={{ color: "#ef4444", padding: "0.5rem 0", fontSize: "0.95rem" }}>
+                        ⚠ {f.message}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className={styles.overviewGrid}>
               <OverviewCard
                 label="Total Sessions"

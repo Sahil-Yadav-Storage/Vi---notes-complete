@@ -1079,3 +1079,35 @@
     gap: 4px;
   }
 }
+
+.sessionActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.analysisButton {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.analysisButton:hover {
+  background: var(--brand);
+  color: var(--brand-foreground);
+  border-color: var(--brand);
+  transform: translateY(-1px);
+}
+
+.analysisButtonDisabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}

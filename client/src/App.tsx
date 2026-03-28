@@ -7,6 +7,7 @@ import FilesPage from "./pages/FilesPage";
 import LoginPage from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import RegisterPage from "./pages/RegisterPage";
+import VerifyPage from "./pages/VerifyPage";
 import GuestRoute from "./routes/GuestRoute";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import FileOpen from "./pages/FileOpen";
@@ -155,6 +156,15 @@ function App() {
               element={
                 <ProtectedRoute isAuthenticated={isAuth}>
                   <FileOpen />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/verify/:sessionId"
+              element={
+                <ProtectedRoute isAuthenticated={isAuth}>
+                  <VerifyPage />
                 </ProtectedRoute>
               }
             />

@@ -16,7 +16,7 @@ export const saveSession = async (req: Request, res: Response) => {
 
     return res
       .status(201)
-      .json({ message: "Session ready", sessionId, resumed });
+      .json({ success: true, sessionId, resumed });
   } catch (error) {
     const { statusCode, message } = getServiceErrorResponse(error);
     console.error(error);
