@@ -666,8 +666,11 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
       e.preventDefault();
 
       const text = e.clipboardData.getData("text/plain");
-      const selectionStart = e.currentTarget.selectionStart ?? 0;
-      const selectionEnd = e.currentTarget.selectionEnd ?? 0;
+
+      const selection = window.getSelection();
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      const selectionStart = range ? range.startOffset : 0;
+      const selectionEnd = range ? range.endOffset : 0;
       const now = Date.now();
 
       document.execCommand("insertText", false, text);
@@ -675,7 +678,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
       setPastes((p) => p + 1);
       setPasteDetected(true);
 
-      queueKeystrokes([
+       queueKeystrokes([
         {
           action: "paste",
           timestamp: now,
@@ -801,7 +804,8 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
           fileData.sessions.reduce((a, s) => a + s.wpm, 0) / totalSessions,
         )
       : 0;
-  const totalDuration = fileData.sessions.reduce((a, s) => a + s.duration, 0);
+  const totalDuration = fileData.sessions.reduce((a, s) => a + Number(s.duration), 0);
+
 
   // ── Render ────────────────────────────────────────────────────────────────
 

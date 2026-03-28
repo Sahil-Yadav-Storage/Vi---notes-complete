@@ -656,14 +656,15 @@
 .sessionStatVal {
   font-weight: 600;
   font-size: 14px;
+  color: var(--text);
 }
 
 .textDefault {
-  color: #e5e7eb;
+  color: var(--text);
 }
 
 .textAccent {
-  color: #f59e0b;
+  color: var(--brand);
 }
 
 .sessionStatLabel {
