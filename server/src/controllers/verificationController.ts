@@ -39,20 +39,23 @@ const refreshVerificationSession = async (sessionId: string) => {
   const session = await Session.findById(sessionId);
   if (!session) return null;
 
+  // If already closed with analytics, use stored values directly — do not recompute
+  if (session.status === "closed" && session.analytics) {
+    return session.toObject();
+  }
+
+  // Session not yet closed — compute analytics fresh
   const document = session.documentId
     ? await Document.findById(session.documentId).lean()
     : null;
 
-  // Always normalize keystrokes before analytics
   const keystrokes = Array.isArray(session.keystrokes)
     ? session.keystrokes.map((k) =>
         normalizeKeystroke(k.toObject ? k.toObject() : k),
       )
     : [];
-  const analytics = computeSessionAnalytics(
-    keystrokes,
-    document?.content ?? "",
-  );
+
+  const analytics = computeSessionAnalytics(keystrokes, document?.content ?? "");
 
   session.analytics = {
     ...analytics,
@@ -63,9 +66,7 @@ const refreshVerificationSession = async (sessionId: string) => {
       : [],
   };
   session.status = "closed";
-  if (!session.closedAt) {
-    session.closedAt = new Date();
-  }
+  if (!session.closedAt) session.closedAt = new Date();
 
   await session.save();
   return session.toObject();

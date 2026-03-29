@@ -537,15 +537,15 @@
 }
 
 .statItemMuted {
-  color: #6b7280;
+  color: var(--muted);
 }
 
 .statItemAccent {
-  color: #d97706;
+  color: var(--brand);
 }
 
 .statItemValue {
-  color: #e5e7eb;
+  color: var(--text);
   font-family: "Courier New", monospace;
   min-width: 2.2em;
   display: inline-block;

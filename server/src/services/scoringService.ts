@@ -17,16 +17,16 @@ export const calculateAuthenticityScore = (
   // Behavioral scoring (0-100)
   let behavioralScore = 50;
 
-  if (behavioral.approximateWpmVariance > 100) {
+  if (behavioral.approximateWpmVariance > 20) {
     behavioralScore += 15;
-  } else if (behavioral.approximateWpmVariance < 20) {
+  } else if (behavioral.approximateWpmVariance < 5) {
     behavioralScore -= 20;
     flags.push("Unusually consistent typing speed");
   }
 
-  if (behavioral.pauseFrequency > 0.3) {
+  if (behavioral.pauseFrequency > 3) {
     behavioralScore += 10;
-  } else if (behavioral.pauseFrequency < 0.05) {
+  } else if (behavioral.pauseFrequency < 1) {
     behavioralScore -= 15;
     flags.push("Very few natural pauses");
   }

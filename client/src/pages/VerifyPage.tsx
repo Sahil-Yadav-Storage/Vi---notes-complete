@@ -29,10 +29,7 @@ type VerificationData = {
       score?: number;
       label?: string;
     };
-    flags?: {
-      type?: string;
-      message?: string;
-    }[];
+    flags?: string[];
   };
   createdAt?: string;
 };
@@ -100,7 +97,10 @@ export default function VerifyPage() {
 
   const analytics = data?.analytics;
   const score = analytics?.authenticity?.score;
-  const hasAnalytics = !!analytics;
+  const hasAnalytics = !!analytics && (
+    (analytics.durationMs ?? 0) > 0 ||
+    (analytics.totalInsertedChars ?? 0) > 0
+  );
 
   const scoreColor =
     typeof score === "number"
@@ -109,7 +109,7 @@ export default function VerifyPage() {
         : score > 40
           ? "text-yellow-400"
           : "text-red-400"
-      : "text-[var(--text-muted)]";
+      : "text-[var(--muted)]";
 
   const openPdf = () => {
     if (!sessionId) return;
@@ -122,9 +122,9 @@ export default function VerifyPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
+      <div className="min-h-screen bg-[var(--base)] text-[var(--text)]">
         <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6">
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-6 py-4 text-sm text-[var(--text-muted)]">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-6 py-4 text-sm text-[var(--muted)]">
             Loading verification report...
           </div>
         </div>
@@ -134,14 +134,14 @@ export default function VerifyPage() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
+      <div className="min-h-screen bg-[var(--base)] text-[var(--text)]">
         <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6">
           <Card className="w-full max-w-2xl">
             <CardContent className="p-6">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <h1 className="text-2xl font-bold">Verification Report</h1>
-                  <p className="mt-2 text-sm text-[var(--text-muted)]">
+                  <p className="mt-2 text-sm text-[var(--muted)]">
                     {error ?? "No report data found."}
                   </p>
                 </div>
@@ -158,22 +158,22 @@ export default function VerifyPage() {
   const label = analytics?.authenticity?.label ?? "Unknown";
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
+    <div className="min-h-screen bg-[var(--base)] text-[var(--text)]">
       <div className="mx-auto w-full max-w-6xl px-6 py-8">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-[var(--text-muted)]">
+            <p className="text-xs uppercase tracking-[0.3em] text-[var(--muted)]">
               ViNotes
             </p>
             <h1 className="mt-2 text-3xl font-bold">Verification Report</h1>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">
+            <p className="mt-1 text-sm text-[var(--muted)]">
               Session: {sessionId}
             </p>
           </div>
 
           <div className="flex gap-3">
             <Button onClick={openPdf}>Download PDF</Button>
-            <Button variant="secondary" onClick={() => navigate(-1)}>
+            <Button variant="outline" onClick={() => navigate(-1)}>
               Back
             </Button>
           </div>
@@ -182,7 +182,7 @@ export default function VerifyPage() {
         <Card className="mb-6">
           <CardContent className="flex flex-wrap items-center justify-between gap-6 p-6">
             <div>
-              <p className="text-sm text-[var(--text-muted)]">
+              <p className="text-sm text-[var(--muted)]">
                 Authenticity Score
               </p>
               <h2 className={`mt-1 text-5xl font-bold ${scoreColor}`}>
@@ -197,24 +197,24 @@ export default function VerifyPage() {
         </Card>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">WPM Variance</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fmt(analytics?.approximateWpmVariance) : "N/A"}</p></CardContent></Card>
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Pause Frequency</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fmt(analytics?.pauseFrequency) : "N/A"}</p></CardContent></Card>
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Edit Ratio</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fmt(analytics?.editRatio) : "N/A"}</p></CardContent></Card>
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Paste Ratio</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fmt(analytics?.pasteRatio) : "N/A"}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">WPM</p><p className="mt-2 text-2xl font-semibold">{fint(analytics?.approximateWpmVariance != null ? Math.round(analytics.approximateWpmVariance) : undefined)}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Pauses</p><p className="mt-2 text-2xl font-semibold">{fint(analytics?.pauseCount)}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Edit Ratio</p><p className="mt-2 text-2xl font-semibold">{fmt(analytics?.editRatio)}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Paste Ratio</p><p className="mt-2 text-2xl font-semibold">{fmt(analytics?.pasteRatio)}</p></CardContent></Card>
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Total Inserted Chars</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fint(analytics?.totalInsertedChars) : "N/A"}</p></CardContent></Card>
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Total Deleted Chars</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fint(analytics?.totalDeletedChars) : "N/A"}</p></CardContent></Card>
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Total Pasted Chars</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fint(analytics?.totalPastedChars) : "N/A"}</p></CardContent></Card>
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Session Time</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fdur(analytics?.durationMs) : "N/A"}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Total Inserted Chars</p><p className="mt-2 text-2xl font-semibold">{fint(analytics?.totalInsertedChars)}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Total Deleted Chars</p><p className="mt-2 text-2xl font-semibold">{fint(analytics?.totalDeletedChars)}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Total Pasted Chars</p><p className="mt-2 text-2xl font-semibold">{fint(analytics?.totalPastedChars)}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Session Time</p><p className="mt-2 text-2xl font-semibold">{fdur(analytics?.durationMs)}</p></CardContent></Card>
         </div>
 
         <Separator className="my-6" />
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Sentence Variance</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fmt(analytics?.textAnalysis?.sentenceVariance) : "N/A"}</p><p className="mt-2 text-sm text-[var(--text-muted)]">Avg sentence length: {hasAnalytics ? fmt(analytics?.textAnalysis?.avgSentenceLength) : "N/A"}</p></CardContent></Card>
-          <Card><CardContent className="p-5"><p className="text-sm text-[var(--text-muted)]">Vocabulary</p><p className="mt-2 text-2xl font-semibold">{hasAnalytics ? fint(analytics?.textAnalysis?.lexicalDiversity) : "N/A"}</p><p className="mt-2 text-sm text-[var(--text-muted)]">Total words: {hasAnalytics ? fint(analytics?.textAnalysis?.totalWords) : "N/A"}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Avg Sentence Length (words)</p><p className="mt-2 text-2xl font-semibold">{fint(analytics?.textAnalysis?.avgSentenceLength != null ? Math.round(analytics.textAnalysis.avgSentenceLength) : undefined)}</p></CardContent></Card>
+          <Card><CardContent className="p-5"><p className="text-sm text-[var(--muted)]">Total Words</p><p className="mt-2 text-2xl font-semibold">{fint(analytics?.finalChars != null ? Math.round(analytics.finalChars / 5) : undefined)}</p></CardContent></Card>
         </div>
 
         <Card className="mt-6">
@@ -223,8 +223,8 @@ export default function VerifyPage() {
             <div className="mt-4 space-y-3">
               {analytics?.flags?.length ? (
                 analytics.flags.map((flag, index) => (
-                  <div key={`${flag.type ?? "flag"}-${index}`} className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-300">
-                    ⚠ {flag.message ?? "Flag raised"}
+                  <div key={`flag-${index}`} className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+                    ⚠ {flag}
                   </div>
                 ))
               ) : (
@@ -236,7 +236,7 @@ export default function VerifyPage() {
           </CardContent>
         </Card>
 
-        <p className="mt-6 text-sm text-[var(--text-muted)]">
+        <p className="mt-6 text-sm text-[var(--muted)]">
           Created: {data.createdAt ? new Date(data.createdAt).toLocaleString() : "N/A"}
         </p>
       </div>

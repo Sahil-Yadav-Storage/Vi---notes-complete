@@ -483,6 +483,7 @@ export const appendToSession = async (
 export const closeSession = async (
   userId: string | undefined,
   sessionId: string,
+  clientWpm?: number,
 ): Promise<CloseSessionResponse> => {
   const ownerId = assertUserId(userId);
 
@@ -512,6 +513,9 @@ export const closeSession = async (
   const content = document?.content || "";
 
   const analytics = computeSessionAnalytics(session.keystrokes, content);
+  if (clientWpm !== undefined) {
+    analytics.approximateWpmVariance = clientWpm;
+  }
   const closedAt = session.closedAt ?? new Date();
 
   session.status = "closed";

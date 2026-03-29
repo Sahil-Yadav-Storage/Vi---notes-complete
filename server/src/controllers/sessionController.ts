@@ -80,7 +80,11 @@ export const closeSessionById = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Invalid session id" });
     }
 
-    const result = await closeSession(req.userId, id);
+    const clientWpm = typeof req.body?.wpm === "number" && Number.isFinite(req.body.wpm)
+      ? Math.round(req.body.wpm)
+      : undefined;
+
+    const result = await closeSession(req.userId, id, clientWpm);
     return res.status(200).json(result);
   } catch (error) {
     const { statusCode, message } = getServiceErrorResponse(error);
