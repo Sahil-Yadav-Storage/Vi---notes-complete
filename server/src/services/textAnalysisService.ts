@@ -2,6 +2,7 @@ interface TextMetrics {
   sentenceLengthVariance: number;
   avgSentenceLength: number;
   vocabularyDiversity: number;
+  totalWords: number;
   uniqueWordRatio: number;
   punctuationDensity: number;
   avgWordLength: number;
@@ -15,6 +16,7 @@ export const analyzeText = (content: string): TextMetrics => {
       sentenceLengthVariance: 0,
       avgSentenceLength: 0,
       vocabularyDiversity: 0,
+      totalWords: 0,
       uniqueWordRatio: 0,
       punctuationDensity: 0,
       avgWordLength: 0,
@@ -42,6 +44,7 @@ export const analyzeText = (content: string): TextMetrics => {
     sentenceLengthVariance: Math.round(variance * 100) / 100,
     avgSentenceLength: Math.round(avgSentenceLength * 100) / 100,
     vocabularyDiversity: uniqueWords.size,
+    totalWords: words.length,
     uniqueWordRatio: words.length > 0 ? Math.round((uniqueWords.size / words.length) * 10000) / 10000 : 0,
     punctuationDensity: totalChars > 0 ? Math.round((punctuationCount / totalChars) * 10000) / 10000 : 0,
     avgWordLength: words.length > 0 ? Math.round((words.join('').length / words.length) * 100) / 100 : 0,

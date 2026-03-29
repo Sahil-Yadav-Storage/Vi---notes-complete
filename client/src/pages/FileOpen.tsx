@@ -480,7 +480,7 @@ function Editor({ fileId, fileName, onClose }: EditorProps) {
         throw new Error("Missing session id");
       }
 
-      const closeRes = await api.post(`/api/sessions/${sessionId}/close`);
+      const closeRes = await api.post(`/api/sessions/${sessionId}/close`, { wpm: finalWpm });
       const analytics = closeRes.data.analytics ?? null;
       setSessionAnalytics(analytics);
 
