@@ -3,6 +3,18 @@ import mongoose from "mongoose";
 import { config } from "./config.js";
 import cors from 'cors';
 
+// Define the exact origin of your Vercel app (NO trailing slash)
+const allowedOrigin = 'https://vi-notes-complete-client-m5ie.vercel.app';
+
+app.use(cors({
+  origin: [allowedOrigin, 'http://localhost:5173'], // Allow production and local dev
+  credentials: true,                              // Required for /auth/refresh (cookies/tokens)
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}));
+app.options('*', cors());
+// Important: Place this ABOVE your route definitions
+
 const PORT = process.env.PORT || 10000;
 
 mongoose
@@ -17,25 +29,3 @@ mongoose
 app.get('/', (req, res) => {
   res.send('Server is running and healthy!');
 });
-
-const allowedOrigins = [
-  'https://vi-notes-complete-client-m5ie.vercel.app', // Your Vercel URL
-  'http://localhost:5173',                         // Local development
-  'http://127.0.0.1:5173'
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true, // Crucial for "refresh" tokens/cookies
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
