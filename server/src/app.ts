@@ -20,8 +20,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       const allowedOrigins = [
-        config.CLIENT_ORIGIN,
-        "https://your-vercel-app.vercel.app"
+        config.CLIENT_ORIGIN
       ];
 
       if (!origin || allowedOrigins.includes(origin)) {
