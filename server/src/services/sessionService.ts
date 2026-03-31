@@ -51,6 +51,8 @@ type SessionWithLifecycle = {
   closedAt?: Date;
   analytics?: import("../shared/session.js").SessionAnalytics;
   keystrokes: import("../shared/keystroke.js").Keystroke[];
+  userBaseline?: any;
+  baselineSnapshot?: any;
   save: () => Promise<unknown>;
 };
 

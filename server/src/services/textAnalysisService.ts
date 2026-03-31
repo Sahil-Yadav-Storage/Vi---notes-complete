@@ -22,6 +22,8 @@ export const analyzeText = (content: string): TextMetrics => {
       uniqueWordRatio: 0,
       punctuationDensity: 0,
       avgWordLength: 0,
+      entropy: 0,
+      repetitionScore: 0,
     };
   }
 
@@ -46,7 +48,7 @@ export const analyzeText = (content: string): TextMetrics => {
     const freq: Record<string, number> = {};
     words.forEach(w => freq[w] = (freq[w] || 0) + 1);
 
-    return Object.values(freq).reduce((sum, f) => {
+    return Object.values(freq as Record<string, number>).reduce((sum, f) => {
       const p = f / words.length;
       return sum - p * Math.log2(p);
     }, 0);

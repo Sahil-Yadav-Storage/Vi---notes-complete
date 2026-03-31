@@ -141,9 +141,14 @@ export const computeSessionAnalytics = (
   // =========================
   const intervals: number[] = [];
   for (let i = 1; i < downEvents.length; i++) {
+    const current = downEvents[i];
+    const prev = downEvents[i - 1];
+
+    if (!current || !prev) continue;
+
     const gap =
-      (getPreferredTimestamp(downEvents[i]!) ?? 0) -
-      (getPreferredTimestamp(downEvents[i - 1]!) ?? 0);
+      (getPreferredTimestamp(current) ?? 0) -
+      (getPreferredTimestamp(prev) ?? 0);
 
     if (gap > 0) intervals.push(gap);
   }
