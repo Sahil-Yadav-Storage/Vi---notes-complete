@@ -42,4 +42,8 @@ app.use("/api/documents", documentRoutes);
 app.use("/api/sessions", sessionRoutes);
 app.use("/api/analytics", analyticsRoutes);
 
+app.use(cors({
+  origin: "https://vi-notes-complete-client-oejs.vercel.app",
+  credentials: true
+}));
 export default app;
