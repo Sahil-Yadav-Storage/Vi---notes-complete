@@ -240,10 +240,11 @@ export const computeSessionAnalytics = (
   // =========================
   // 🔥 DURATION
   // =========================
-  const first = getPreferredTimestamp(orderedEvents[0]) ?? 0;
-  const last =
-    getPreferredTimestamp(orderedEvents[orderedEvents.length - 1]) ??
-    first;
+  const firstEvent = orderedEvents[0];
+  const lastEvent = orderedEvents[orderedEvents.length - 1];
+
+  const first = firstEvent ? (getPreferredTimestamp(firstEvent) ?? 0) : 0;
+  const last = lastEvent ? (getPreferredTimestamp(lastEvent) ?? first) : first;
 
   const durationMs = Math.max(0, last - first);
 

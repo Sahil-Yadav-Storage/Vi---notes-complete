@@ -28,7 +28,7 @@ export const analyzeText = (content: string): TextMetrics => {
   }
 
   const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-  const words = text.toLowerCase().match(/\b[a-z]+\b/gi) || [];
+  const words: string[] = text.toLowerCase().match(/\b[a-z]+\b/gi) ?? [];
   const uniqueWords = new Set(words);
 
   const sentenceLengths = sentences.map(s => (s.match(/\b\w+\b/g) || []).length);
@@ -45,8 +45,11 @@ export const analyzeText = (content: string): TextMetrics => {
   const totalChars = text.replace(/\s/g, '').length;
 
   const entropy = (() => {
-    const freq: Record<string, number> = {};
-    words.forEach(w => freq[w] = (freq[w] || 0) + 1);
+    const freq: Record<string, number> = Object.create(null);
+
+    for (const w of words) {
+      freq[w] = (freq[w] ?? 0) + 1;
+    }
 
     return Object.values(freq as Record<string, number>).reduce((sum, f) => {
       const p = f / words.length;
