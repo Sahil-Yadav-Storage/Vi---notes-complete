@@ -44,6 +44,7 @@ app.use("/api/analytics", analyticsRoutes);
 
 app.use(cors({
   origin: "https://vi-notes-complete-client-oejs.vercel.app",
-  credentials: true
+  credentials: true,
+  withCredentials: true
 }));
 export default app;
