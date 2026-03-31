@@ -1312,26 +1312,26 @@ function StatItem({
   );
 }
 
-function SessionStat({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number | string;
-  accent?: boolean;
-}) {
-  return (
-    <div className={styles.sessionStat}>
-      <div
-        className={`${styles.sessionStatVal} ${accent ? styles.textAccent : styles.textDefault}`}
-      >
-        {value}
-      </div>
-      <div className={styles.sessionStatLabel}>{label}</div>
-    </div>
-  );
-}
+// function SessionStat({
+//   label,
+//   value,
+//   accent,
+// }: {
+//   label: string;
+//   value: number | string;
+//   accent?: boolean;
+// }) {
+//   return (
+//     <div className={styles.sessionStat}>
+//       <div
+//         className={`${styles.sessionStatVal} ${accent ? styles.textAccent : styles.textDefault}`}
+//       >
+//         {value}
+//       </div>
+//       <div className={styles.sessionStatLabel}>{label}</div>
+//     </div>
+//   );
+// }
 
 function OverviewCard({
   label,
