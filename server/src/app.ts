@@ -15,6 +15,12 @@ const allowedOrigins = [
   config.CLIENT_ORIGIN,
 ];
 
+const isAllowedVercelOrigin = (origin: string) => {
+  return /^https:\/\/vi-notes-client(-[a-z0-9]+-[a-z0-9]+)?\.vercel\.app$/.test(
+    origin,
+  );
+};
+
 const isAllowedDevOrigin = (origin: string) => {
   return (
     /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0):\d+$/.test(origin) ||
@@ -25,7 +31,7 @@ const isAllowedDevOrigin = (origin: string) => {
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(origin) || isAllowedVercelOrigin(origin)) {
         callback(null, true);
         return;
       }
